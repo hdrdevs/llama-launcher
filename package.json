@@ -1,0 +1,43 @@
+{
+  "name": "llama-launcher",
+  "productName": "Llama Launcher",
+  "version": "1.0.0",
+  "description": "Launcher gráfico para servidores llama.cpp",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "build": "electron-builder --win portable",
+    "build:dir": "electron-builder --win dir"
+  },
+  "build": {
+    "appId": "com.llama.launcher",
+    "productName": "Llama Launcher",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "src/icon.ico"
+    },
+    "portable": {
+      "artifactName": "LlamaLauncher-${version}-portable.exe"
+    }
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^37.10.3",
+    "electron-builder": "^26.0.12"
+  }
+}

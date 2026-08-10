@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <title>Llama Launcher</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="titlebar" class="titlebar">
+    <div class="titlebar-brand">
+      <div class="titlebar-mark">LL</div>
+      <span class="titlebar-title">Llama Launcher</span>
+    </div>
+    <div class="titlebar-controls">
+      <button id="gearBtn" class="win-btn" title="Ajustes" style="width:40px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+      <button id="winMinBtn" class="win-btn" title="Minimizar">─</button>
+      <button id="winMaxBtn" class="win-btn" title="Maximizar">▢</button>
+      <button id="winCloseBtn" class="win-btn win-close" title="Cerrar">✕</button>
+    </div>
+  </div>
+
+  <aside class="sidebar">
+    <nav class="side-nav">
+      <button id="dashNavBtn" class="side-nav-btn active" data-i18n="nav_dashboard">Dashboard</button>
+      <button id="newBtn" class="side-nav-btn" data-i18n="nav_new">+ Nueva instancia</button>
+    </nav>
+    <div class="list-label" data-i18n="list_label">Mis instancias</div>
+    <div id="profileList" class="profile-list"></div>
+  </aside>
+
+  <main class="main">
+    <header id="dashTopbar" class="topbar">
+      <div class="dash-title">
+        <h1 data-i18n="dash_title">Dashboard</h1>
+        <span class="dash-subtitle" data-i18n="dash_subtitle">Tus instancias de llama.cpp</span>
+      </div>
+      <div class="top-actions">
+        <span id="dashStatusBadge" class="badge stopped" data-i18n="status_stopped">Detenido</span>
+        <button id="dashSelBtn" class="btn icon-btn" data-i18n-title="btn_select_title" title="Seleccionar instancias para eliminar" data-i18n="btn_select">Seleccionar</button>
+        <button id="dashNewBtn" class="btn btn-accent" data-i18n="btn_new">+ Nueva instancia</button>
+      </div>
+    </header>
+
+    <section id="dashboardView" class="dash-view">
+        <div id="dashSelBar" class="dash-sel-bar hidden">
+        <span id="dashSelCount">0 seleccionados</span>
+        <div class="dash-sel-actions">
+          <button id="dashSelAllBtn" class="btn small" data-i18n="sel_all">Todo</button>
+          <button id="dashSelNoneBtn" class="btn small ghost" data-i18n="sel_none">Ninguno</button>
+          <button id="dashSelDeleteBtn" class="btn small danger" data-i18n="sel_delete">Eliminar</button>
+          <button id="dashSelCancelBtn" class="btn small ghost" data-i18n="sel_cancel">Cancelar</button>
+        </div>
+      </div>
+      <div id="dashGrid" class="dash-grid"></div>
+      <div id="dashEmpty" class="dash-empty hidden">
+        <div class="dash-empty-icon">LL</div>
+        <h2 data-i18n="empty_heading">Todavía no tenés instancias</h2>
+        <p data-i18n="empty_desc">Creá tu primera instancia para lanzar un servidor de llama.cpp.</p>
+        <button id="dashEmptyNewBtn" class="btn btn-accent" data-i18n="empty_btn">+ Nueva instancia</button>
+      </div>
+    </section>
+
+    <div id="editorView" class="editor-view hidden">
+      <header class="topbar">
+        <button id="backBtn" class="btn icon-btn" data-i18n-title="btn_back" title="Volver al dashboard" data-i18n="btn_back">← Volver</button>
+        <input id="nameInput" class="name-input" data-i18n-placeholder="input_name_ph" placeholder="Nombre de la instancia" />
+        <div class="top-actions">
+          <button id="dupBtn" class="btn icon-btn" data-i18n-title="btn_dup" title="Duplicar instancia" data-i18n="btn_dup">Duplicar</button>
+          <button id="delBtn" class="btn icon-btn danger" data-i18n-title="btn_del" title="Eliminar instancia" data-i18n="btn_del">Eliminar</button>
+          <span id="statusBadge" class="badge stopped" data-i18n="status_stopped">Detenido</span>
+          <button id="runBtn" class="btn run-btn stopped" data-i18n="btn_start">Iniciar</button>
+        </div>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab active" data-tab="general" data-i18n="tab_general">General</button>
+        <button class="tab" data-tab="sampling" data-i18n="tab_sampling">Muestreo</button>
+        <button class="tab" data-tab="rendering" data-i18n="tab_rendering">Rendimiento</button>
+        <button class="tab" data-tab="server" data-i18n="tab_server">Servidor</button>
+        <button class="tab" data-tab="command" data-i18n="tab_command">Instancia</button>
+      </nav>
+
+      <section id="panel-general" class="panel active"></section>
+      <section id="panel-sampling" class="panel"></section>
+      <section id="panel-rendering" class="panel"></section>
+      <section id="panel-server" class="panel"></section>
+      <section id="panel-command" class="panel">
+        <div class="cmd-editor">
+          <p class="hint" data-i18n="cmd_hint">Editá a mano los parámetros y presioná Aplicar: los demás tabs se actualizarán.</p>
+          <textarea id="cmdTextarea" class="cmd-textarea" spellcheck="false" placeholder="llama-server.exe --model ..."></textarea>
+          <div class="cmd-actions">
+            <button id="cmdApplyBtn" class="btn btn-accent" data-i18n="cmd_apply">Aplicar</button>
+            <button id="cmdResetBtn" class="btn ghost" data-i18n="cmd_reset">Restaurar</button>
+          </div>
+          <pre id="cmdStatus" class="cmd-status"></pre>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="wizardModal" class="modal hidden">
+    <div class="modal-card wizard-card">
+      <div class="modal-head">
+        <span data-i18n="wiz_title">Nueva instancia · asistente</span>
+        <button id="wizardClose" class="modal-x" title="Cerrar" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="wizard-progress" id="wizardSteps"></div>
+      <div class="modal-body wizard-body">
+
+          <div class="wizard-step" data-step="install">
+          <div class="wizard-step-title">¿Qué versión de llama.cpp querés usar?</div>
+          <p class="hint">Elegí la instalación que contiene llama-server.exe. Podés agregar, descargar o editar versiones.</p>
+          <div class="field">
+            <select id="wizInstall" class="text-input"></select>
+          </div>
+          <div class="pickrow" style="gap:8px">
+            <button id="wizManageInstalls" class="btn small ghost">Gestionar versiones</button>
+            <button id="wizDownloadInstall" class="btn small">↓ Descargar versión</button>
+          </div>
+        </div>
+
+        <div class="wizard-step" data-step="model">
+          <div class="wizard-step-title">¿Qué modelo vamos a cargar?</div>
+          <p class="hint">Seleccioná un modelo .gguf de tu carpeta de modelos o buscá el archivo.</p>
+          <div class="field">
+            <div class="pickrow">
+              <select id="wizModel" class="text-input"></select>
+              <button id="wizBrowseModel" class="btn small">Examinar</button>
+              <button id="wizHfBtn" class="btn small">Buscar en HF</button>
+            </div>
+            <div id="wizModelInfo" class="hint"></div>
+          </div>
+          <div class="field">
+            <div class="field-head"><label>Contexto (ctx-size)</label></div>
+            <div class="preset-row" id="wizCtxPresets"></div>
+            <div class="pickrow">
+              <input id="wizCtx" type="number" class="text-input" style="width:160px" min="64" max="1000000" placeholder="4096" />
+              <span class="hint">tokens</span>
+            </div>
+            <p class="hint" id="wizCtxHint"></p>
+          </div>
+          <div class="field">
+            <div class="field-head"><label>Parámetros recomendados (Hugging Face)</label></div>
+            <div class="pickrow">
+              <input id="wizHfRepo" type="text" class="text-input" placeholder="org/modelo (ej. ggml-org/Qwen3-8B-GGUF)" style="flex:1" />
+              <button id="wizHfRecommendBtn" class="btn small">Buscar y aplicar</button>
+            </div>
+            <p class="hint" id="wizHfRecInfo">Consultá la ficha del modelo en Hugging Face y aplicá los valores sugeridos (como el contexto) a la instancia.</p>
+          </div>
+        </div>
+
+        <div class="wizard-step" data-step="vision">
+          <div class="wizard-step-title">¿Querés activar la visión (multimodal)?</div>
+          <p class="hint">Para enviar imágenes necesitás un archivo MMProj compatible con el modelo.</p>
+          <label class="check-field">
+            <input type="checkbox" id="wizVision" />
+            <span>Activar soporte de imágenes</span>
+          </label>
+          <div id="wizVisionRow" class="field" style="display:none">
+            <div class="pickrow">
+              <select id="wizVisionFile" class="text-input"></select>
+              <button id="wizBrowseVision" class="btn small">Examinar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="wizard-step" data-step="mtp">
+          <div class="wizard-step-title">¿Querés usar MTP (Multi-Token Prediction)?</div>
+          <p class="hint">MTP acelera la generación prediciendo varios tokens por paso. Podés usar el MTP incluido en el modelo o un archivo separado.</p>
+          <label class="check-field">
+            <input type="checkbox" id="wizMtp" />
+            <span>Activar MTP</span>
+          </label>
+          <div id="wizMtpRow" class="field" style="display:none">
+            <div class="radio-block">
+              <label class="wiz-radio">
+                <input type="radio" name="wizMtpMode" value="builtin" checked />
+                <span>Usar el MTP incluido en el modelo</span>
+              </label>
+              <label class="wiz-radio">
+                <input type="radio" name="wizMtpMode" value="file" />
+                <span>Usar un archivo MTP separado</span>
+              </label>
+            </div>
+            <div id="wizMtpFileRow" class="pickrow" style="display:none;margin-top:10px">
+              <select id="wizMtpFile" class="text-input"></select>
+              <button id="wizBrowseMtp" class="btn small">Examinar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="wizard-step" data-step="vram">
+          <div class="wizard-step-title">¿Cómo querés optimizar el uso de VRAM?</div>
+          <p class="hint">Se configura la instancia (KV cache, contexto, capas en GPU y flash attention) según la prioridad que elijas.</p>
+          <div class="vram-options" id="wizVramOptions"></div>
+          <div id="wizVramInfo" class="hint"></div>
+        </div>
+
+        <div class="wizard-step" data-step="net">
+          <div class="wizard-step-title">Configurá el servidor</div>
+          <p class="hint">Dirección y puerto donde va a escuchar llama-server.</p>
+          <div class="field">
+            <div class="field-head"><label>Host</label></div>
+            <input id="wizHost" type="text" class="text-input" placeholder="127.0.0.1" />
+          </div>
+          <div class="field">
+            <div class="field-head"><label>Puerto</label></div>
+            <input id="wizPort" type="number" class="text-input" placeholder="8080" min="0" max="65535" />
+          </div>
+        </div>
+
+        <div class="wizard-step" data-step="done">
+          <div class="wizard-step-title">La instancia quedó así</div>
+          <p class="hint">Revisá el resumen. Podés finalizar, finalizar y ejecutar, o abrir el editor para ver todos los detalles.</p>
+          <div id="wizSummary" class="wizard-summary"></div>
+        </div>
+
+      </div>
+      <div class="modal-foot wizard-foot">
+        <button id="wizardBackBtn" class="btn ghost">← Atrás</button>
+        <span class="wizard-spacer"></span>
+        <button id="wizardNextBtn" class="btn btn-accent">Siguiente →</button>
+        <div id="wizardFinalBtns" class="hidden" style="display:flex;gap:8px">
+          <button id="wizardFinishBtn" class="btn">Finalizar</button>
+          <button id="wizardRunBtn" class="btn btn-accent">Finalizar y ejecutar</button>
+          <button id="wizardDetailsBtn" class="btn ghost">Ver detalles</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-card modal-card-lg">
+      <div class="modal-head">
+        <span>Configuración</span>
+        <button id="modalClose" class="modal-x" title="Cerrar" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="settings-tabs">
+        <button class="settings-tab active" data-settings-tab="general" data-i18n="settings_tab_general">General</button>
+        <button class="settings-tab" data-settings-tab="tema" data-i18n="settings_tab_theme">Tema</button>
+        <button class="settings-tab" data-settings-tab="motor" data-i18n="settings_tab_engine">Motor (llama.cpp)</button>
+        <button class="settings-tab" data-settings-tab="modelos" data-i18n="settings_tab_models">Modelos</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-pane" data-pane="general">
+          <div class="settings-section">
+            <div class="settings-title" data-i18n="settings_tab_general">General</div>
+            <div class="field" style="margin-bottom:14px">
+              <div class="field-head"><label data-i18n="lang_label">Idioma</label></div>
+              <select id="langSelect" class="text-input">
+                <option value="es">Español</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <div class="field-head"><label data-i18n="general_models_dir">Carpeta de modelos</label></div>
+              <div class="pickrow">
+                <input id="modelsDir" class="text-input" data-i18n-placeholder="general_models_ph" placeholder="Carpeta donde buscás tus modelos .gguf" />
+                <button id="browseDirBtn" class="btn small" data-i18n="btn_browse">Examinar</button>
+              </div>
+              <p class="hint" data-i18n="general_models_hint">Esta carpeta se escanea para listar los modelos disponibles. Los modelos que descargues desde HuggingFace se guardan acá.</p>
+            </div>
+          </div>
+        </div>
+        <div class="settings-pane hidden" data-pane="tema">
+          <div class="settings-section">
+            <div class="settings-title" data-i18n="theme_title">Tema</div>
+            <p class="hint" data-i18n="theme_hint">Elegí un esquema de colores para la interfaz.</p>
+            <div id="themeGrid" class="theme-grid"></div>
+          </div>
+        </div>
+        <div class="settings-pane hidden" data-pane="motor">
+          <div class="settings-section">
+            <div class="settings-title" data-i18n="engine_title">Motor (llama.cpp)</div>
+            <p class="hint" data-i18n="engine_hint">Registrá cada carpeta de llama.cpp que tengas descargada.</p>
+            <div id="installList" class="install-list"></div>
+            <div class="settings-actions">
+              <button id="addInstallBtn" class="btn small" data-i18n="engine_add">+ Agregar versión</button>
+              <button id="downloadInstallBtn" class="btn small" data-i18n="engine_download">↓ Descargar versión de GitHub</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-pane hidden" data-pane="modelos">
+          <div class="settings-section">
+            <div class="settings-title" data-i18n="models_title">Modelos descargados</div>
+            <p class="hint" data-i18n="models_hint">Los modelos descargados de HuggingFace se guardan en la carpeta de modelos.</p>
+            <div class="settings-actions" style="margin-bottom:10px">
+              <button id="hfOpenBtn" class="btn small" data-i18n="models_search_hf">Buscar modelo en HuggingFace</button>
+              <button id="scanModelsBtn" class="btn small ghost" data-i18n="models_rescan">Re-escaneo de modelos</button>
+            </div>
+            <div id="downloadedModels" class="install-list"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button id="saveSettingsBtn" class="btn btn-accent" data-i18n="settings_save">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="installModal" class="modal hidden">
+    <div class="modal-card modal-card-sm">
+      <div class="modal-head">
+        <span id="installModalTitle">Nueva versión</span>
+        <button id="installModalClose" class="modal-x" title="Cerrar" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <div class="field-head"><label>Nombre</label></div>
+          <input id="installName" class="text-input" placeholder="Ej: llama-b10331" />
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <div class="field-head"><label>Carpeta de llama.cpp</label></div>
+          <div class="pickrow">
+            <input id="installPath" class="text-input" placeholder="Carpeta que contiene llama-server.exe" />
+            <button id="installBrowseBtn" class="btn small">Examinar</button>
+          </div>
+          <p id="installPathHint" class="hint"></p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button id="installSaveBtn" class="btn btn-accent">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dlModal" class="modal hidden">
+    <div class="modal-card wizard-card">
+      <div class="modal-head">
+        <span>Descargar llama.cpp</span>
+        <button id="dlClose" class="modal-x" title="Cerrar" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="wizard-progress" id="dlSteps"></div>
+      <div class="modal-body wizard-body">
+
+        <div class="wizard-step" data-step="version">
+          <div class="wizard-step-title">Elegí una versión de llama.cpp</div>
+          <p class="hint">Releases de ggml-org/llama.cpp, de la más reciente a la más antigua. Solo se listan las que tienen build para Windows.</p>
+          <p class="hint" id="dlVersionLoading">Cargando versiones…</p>
+          <p class="hint text-err hidden" id="dlVersionErr"></p>
+          <div id="dlVersionList" class="dl-list"></div>
+          <p class="hint" id="dlVersionEmpty" style="display:none">No hay versiones con build para Windows disponibles.</p>
+        </div>
+
+        <div class="wizard-step hidden" data-step="backend">
+          <div class="wizard-step-title">¿Qué backend querés?</div>
+          <p class="hint">Se descarga el paquete correspondiente y se instala en <code id="dlTargetDir"></code>.</p>
+          <div id="dlBackends" class="vram-options"></div>
+          <div id="dlCudaRow" class="field" style="display:none;margin-top:14px">
+            <div class="field-head"><label>Versión de CUDA</label></div>
+            <select id="dlCudaVersion" class="text-input"></select>
+            <p class="hint">Se descargarán también las DLL del runtime de CUDA para esa versión y se instalarán junto al ejecutable.</p>
+          </div>
+        </div>
+
+        <div class="wizard-step hidden" data-step="progress">
+          <div class="wizard-step-title" id="dlProgressTitle">Descargando…</div>
+          <div class="progress-track"><div id="dlProgressFill" class="progress-fill"></div></div>
+          <p class="hint" id="dlProgressPct">0%</p>
+          <p class="hint" id="dlProgressDetail"></p>
+          <div id="dlResult"></div>
+        </div>
+
+      </div>
+      <div class="modal-foot wizard-foot">
+        <button id="dlBackBtn" class="btn ghost">← Atrás</button>
+        <span class="wizard-spacer"></span>
+        <button id="dlNextBtn" class="btn btn-accent">Siguiente →</button>
+        <button id="dlCancelBtn" class="btn ghost hidden">Cancelar</button>
+        <div id="dlDoneBtns" class="hidden" style="display:flex;gap:8px">
+          <button id="dlFinishBtn" class="btn btn-accent">Finalizar</button>
+          <button id="dlUseBtn" class="btn">Usar en una instancia</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="hfModal" class="modal hidden">
+    <div class="modal-card wizard-card">
+      <div class="modal-head">
+        <span>Descargar modelo de HuggingFace</span>
+        <button id="hfClose" class="modal-x" title="Cerrar" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="wizard-progress" id="hfSteps"></div>
+      <div class="modal-body wizard-body">
+
+        <div class="wizard-step" data-step="search">
+          <div class="wizard-step-title">Buscá un modelo</div>
+          <p class="hint">Se buscan modelos en HuggingFace Hub ordenados por descargas. Ajustá los filtros y elegí un modelo para ver sus cuantizaciones.</p>
+          <div class="hf-search-row">
+            <input id="hfQuery" class="text-input" placeholder="Ej: qwen2.5, llama-3, deepseek…" />
+            <button id="hfSearchBtn" class="btn btn-accent">Buscar</button>
+          </div>
+          <div class="hf-filters">
+            <div class="field">
+              <div class="field-head"><label>Categoría</label></div>
+              <select id="hfCategory" class="text-input"></select>
+            </div>
+            <div class="field">
+              <div class="field-head"><label>Parámetros (billones)</label></div>
+              <div class="hf-range" id="hfRange">
+                <div class="hf-range-labels">
+                  <span class="hf-range-val" id="hfMinVal">0B</span>
+                  <span class="hf-range-sep">—</span>
+                  <span class="hf-range-val" id="hfMaxVal">100B+</span>
+                </div>
+                <div class="hf-range-track" id="hfTrack">
+                  <div class="hf-range-fill" id="hfFill"></div>
+                  <div class="hf-range-handle" id="hfHandleMin" tabindex="0"></div>
+                  <div class="hf-range-handle" id="hfHandleMax" tabindex="0"></div>
+                </div>
+                <div class="hf-range-ticks" id="hfTicks"></div>
+              </div>
+            </div>
+          </div>
+          <label class="check-field">
+            <input type="checkbox" id="hfGgufOnly" checked />
+            <span>Solo repos con cuantizaciones GGUF</span>
+          </label>
+          <p class="hint" id="hfLoading">Cargando…</p>
+          <p class="hint text-err hidden" id="hfErr"></p>
+          <div id="hfResults" class="dl-list"></div>
+          <p class="hint" id="hfEmpty" style="display:none">Sin resultados para esos filtros.</p>
+        </div>
+
+        <div class="wizard-step hidden" data-step="files">
+          <div class="wizard-step-title">Elegí la cuantización</div>
+          <p class="hint">Se descargarán los archivos a <code id="hfDest"></code>.</p>
+          <div class="field">
+            <div class="field-head"><label>Cuantización</label></div>
+            <div id="hfQuantList" class="vram-options hf-quant-grid"></div>
+            <p class="hint text-err" id="hfNoQuant"></p>
+          </div>
+          <div id="hfVisionBox" class="field hidden">
+            <div class="field-head"><label>Archivo de visión (MMProj)</label></div>
+            <div class="pickrow">
+              <select id="hfVisionFile" class="text-input"></select>
+            </div>
+            <label class="check-field" style="margin-top:8px">
+              <input type="checkbox" id="hfVisionOn" checked />
+              <span>Descargar también el archivo de visión</span>
+            </label>
+          </div>
+          <div id="hfMtpBox" class="field hidden">
+            <div class="field-head"><label>Archivo MTP</label></div>
+            <div class="pickrow">
+              <select id="hfMtpFile" class="text-input"></select>
+            </div>
+            <label class="check-field" style="margin-top:8px">
+              <input type="checkbox" id="hfMtpOn" checked />
+              <span>Descargar también el archivo MTP</span>
+            </label>
+          </div>
+          <p class="hint" id="hfFilesHint"></p>
+          <p class="hint text-err" id="hfFilesErr"></p>
+        </div>
+
+        <div class="wizard-step hidden" data-step="progress">
+          <div class="wizard-step-title" id="hfProgressTitle">Descargando…</div>
+          <div class="progress-track"><div id="hfProgressFill" class="progress-fill"></div></div>
+          <p class="hint" id="hfProgressPct">0%</p>
+          <p class="hint" id="hfProgressDetail"></p>
+          <div id="hfResult"></div>
+        </div>
+
+      </div>
+      <div class="modal-foot wizard-foot">
+        <button id="hfBackBtn" class="btn ghost">← Atrás</button>
+        <span class="wizard-spacer"></span>
+        <button id="hfNextBtn" class="btn btn-accent">Descargar</button>
+        <button id="hfCancelBtn" class="btn ghost hidden">Cancelar</button>
+        <div id="hfDoneBtns" class="hidden" style="display:flex;gap:8px">
+          <button id="hfFinishBtn" class="btn btn-accent">Finalizar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer id="statsBar" class="stats-bar">
+    <div class="stats-head">
+      <nav class="bottom-tabs">
+        <button id="bottomTabRecursos" class="tab active" data-bottom="recursos" data-i18n="dock_resources">Recursos</button>
+        <button id="bottomTabConsola" class="tab" data-bottom="consola" data-i18n="dock_console">Consola</button>
+      </nav>
+      <div class="stats-head-right">
+        <span id="speedBadge" class="speed-badge" title="Velocidad reportada por llama-server">— tok/s</span>
+        <button id="bottomCollapseBtn" class="bottom-collapse" title="Mostrar / ocultar panel inferior">
+          <span class="chevron">▾</span>
+        </button>
+      </div>
+    </div>
+    <div id="bottomRecursos" class="bottom-panel active">
+      <div class="stats-legend">
+        <span class="stats-item" style="--c:#7c5cff"><i></i>CPU <b id="statCpu">0%</b></span>
+        <span class="stats-item" style="--c:#34d399"><i></i>RAM <b id="statRam">0 / 0 GB</b></span>
+        <span class="stats-item" style="--c:#fbbf24"><i></i>VRAM <b id="statGpu">N/A</b></span>
+      </div>
+      <canvas id="statsCanvas"></canvas>
+    </div>
+    <div id="bottomConsola" class="bottom-panel">
+      <div id="argErrorBox" class="arg-error hidden">
+        <div class="arg-error-head">
+          <span class="arg-error-title">El servidor se detuvo por un argumento inválido</span>
+          <button id="argErrorClose" class="modal-x" title="Cerrar" aria-label="Cerrar">✕</button>
+        </div>
+        <div id="argErrorBody" class="arg-error-body"></div>
+        <div class="arg-error-actions">
+          <button id="argErrorFixBtn" class="btn small btn-accent hidden">Corregir automáticamente</button>
+          <button id="argErrorFieldBtn" class="btn small hidden">Ver campo</button>
+        </div>
+      </div>
+      <div id="log" class="log"></div>
+    </div>
+  </footer>
+
+  <div id="confirmModal" class="modal hidden">
+    <div class="modal-card modal-card-sm confirm-card">
+      <div class="modal-head">
+        <span id="confirmTitle">Confirmar</span>
+        <button id="confirmClose" class="modal-x" title="Cancelar" aria-label="Cancelar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMsg" class="confirm-msg"></p>
+      </div>
+      <div class="modal-foot confirm-foot">
+        <button id="confirmCancelBtn" class="btn ghost">Cancelar</button>
+        <button id="confirmOkBtn" class="btn btn-accent">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="translations.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
