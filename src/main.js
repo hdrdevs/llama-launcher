@@ -1774,8 +1774,8 @@ async function runSmoke(win) {
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     document.getElementById('dashNewBtn').click();
     await sleep(150);
-    const boardOpened = !document.getElementById('boardView').classList.contains('hidden');
-    document.getElementById('boardWizardBtn').click();
+    const choiceOpened = !document.getElementById('confirmModal').classList.contains('hidden');
+    document.getElementById('confirmOkBtn').click();
     await sleep(150);
     const opened = !document.getElementById('wizardModal').classList.contains('hidden');
     const stepCount = document.querySelectorAll('#wizardSteps .wizard-step-label').length;
@@ -1830,7 +1830,7 @@ async function runSmoke(win) {
     const profileCount = document.querySelectorAll('#profileList .profile-item').length;
     const inDashboard = !document.getElementById('dashboardView').classList.contains('hidden');
     const lastItemText = Array.from(document.querySelectorAll('#profileList .profile-item')).pop().textContent;
-    return { boardOpened, opened, stepCount, installOptions, installVal, onModel, modelOptions, modelInfoText, ctxPresets, ctxDefault, ctxAfter, onVision, onMtp, vramOptions, vramInfo, onNet, hostVal, portVal, onDone, summary, cmd, finalBtnsVisible, closed, profileCount, inDashboard, lastItemText };
+    return { choiceOpened, opened, stepCount, installOptions, installVal, onModel, modelOptions, modelInfoText, ctxPresets, ctxDefault, ctxAfter, onVision, onMtp, vramOptions, vramInfo, onNet, hostVal, portVal, onDone, summary, cmd, finalBtnsVisible, closed, profileCount, inDashboard, lastItemText };
   })()`);
 
   const ggufTest = await wc.executeJavaScript(`(async () => {

@@ -2042,6 +2042,18 @@ function openBoardForNewProfile() {
   scheduleSave();
 }
 
+async function createNewInstance() {
+  if (dashSelMode) exitDashSelection();
+  const useWizard = await confirmDialog({
+    title: 'Crear instancia',
+    message: '¿Querés configurar la instancia paso a paso con el asistente o usar el tablero en modo experto?',
+    okLabel: 'Usar asistente',
+    cancelLabel: 'Modo experto',
+  });
+  if (useWizard) openWizard();
+  else openBoardForNewProfile();
+}
+
 function renderBoardPalette() {
   const p = current();
   const setComponentVisible = (type, visible) => {
@@ -4532,8 +4544,7 @@ document.addEventListener('DOMContentLoaded', () => {
   init();
 
   const createNewCommand = () => {
-    if (dashSelMode) exitDashSelection();
-    openBoardForNewProfile();
+    createNewInstance();
   };
 
   $('#dashNavBtn').addEventListener('click', () => {
