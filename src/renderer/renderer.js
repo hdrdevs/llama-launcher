@@ -307,6 +307,7 @@ let layoutSaveTimer = null;
 let dashSelMode = false;
 let dashSelected = new Set();
 let boardConfig = null;
+const boardMoeCache = new Map();
 
 function showDashboard() {
   view = 'dashboard';
@@ -1995,6 +1996,7 @@ async function scanModels() {
 const BOARD_CONTEXT_KEYS = ['ctxSize', 'cacheTypeK', 'cacheTypeV'];
 const BOARD_GPU_KEYS = ['gpuLayers', 'gpuLayersAll', 'mainGpu', 'tensorSplit', 'device'];
 const BOARD_MTP_KEYS = ['mtp', 'specDraftModel', 'specDraftNMax', 'specDraftNMin', 'specDraftPSplit'];
+const BOARD_MOE_KEYS = ['cpuMoe', 'nCpuMoe'];
 
 function boardHasAnyConfigured(p, keys) {
   return !!(p && Array.isArray(p.configured) && keys.some((k) => p.configured.includes(k)));
@@ -2013,6 +2015,7 @@ function boardIcon(type) {
     mtp: '<svg viewBox="0 0 24 24"><path d="m4 5 8 7-8 7V5Z"/><path d="m12 5 8 7-8 7V5Z"/></svg>',
     context: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
     gpu: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></svg>',
+    moe: '<svg viewBox="0 0 24 24"><circle cx="6" cy="7" r="3"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="17" r="3"/><path d="M8.4 9.2 10.6 14M15.6 9.2 13.4 14"/></svg>',
   };
   return icons[type] || icons.model;
 }
@@ -2029,6 +2032,38 @@ function boardRelatedModelFile(kind) {
   const dir = String(p.modelPath).replace(/[\\/][^\\/]+$/, '').toLowerCase();
   const candidates = modelsCache.filter((m) => modelKind(m) === kind && String(m).replace(/[\\/][^\\/]+$/, '').toLowerCase() === dir);
   return candidates.length === 1 ? candidates[0] : '';
+}
+
+function boardMoeInfo(p) {
+  if (!p || !p.modelPath) return null;
+  if (currentModelInfo && lastModelPath === p.modelPath && currentModelInfo.isMoe) return currentModelInfo;
+  return boardMoeCache.get(p.modelPath) || null;
+}
+
+async function boardRefreshMoeInfo(p) {
+  if (!p || !p.modelPath || boardMoeCache.has(p.modelPath)) return;
+  let info = null;
+  try {
+    const res = await window.api.inspectModel(p.modelPath);
+    if (res && res.ok) info = res;
+  } catch (e) {}
+  const repo = settings.hfRepoMap && settings.hfRepoMap[p.modelPath]
+    ? String(settings.hfRepoMap[p.modelPath]).replace(/^https?:\/\/huggingface\.co\//i, '').replace(/\/+$/, '')
+    : '';
+  if (repo) {
+    try {
+      const hfRes = await window.api.getHfModelConfig(repo);
+      if (hfRes && hfRes.ok && hfRes.info) {
+        info = Object.assign({}, info || {}, {
+          isMoe: !!((info && info.isMoe) || hfRes.info.isMoe),
+          nExperts: (info && info.nExperts) || hfRes.info.nExperts || null,
+          moeSource: 'Hugging Face: ' + hfRes.info.source,
+        });
+      }
+    } catch (e) {}
+  }
+  boardMoeCache.set(p.modelPath, info || { isMoe: false });
+  if (view === 'board') renderBoard();
 }
 
 function openBoardForNewProfile() {
@@ -2065,7 +2100,9 @@ function renderBoardPalette() {
   setComponentVisible('mtp', !(p && p.mtp));
   setComponentVisible('context', !(p && boardHasAnyConfigured(p, BOARD_CONTEXT_KEYS)));
   setComponentVisible('gpu', !(p && boardHasAnyConfigured(p, BOARD_GPU_KEYS)));
-  const visibleComponents = ['model', 'vision', 'mtp', 'context', 'gpu'].some((type) => {
+  const moe = boardMoeInfo(p);
+  setComponentVisible('moe', !!(p && p.modelPath && moe && moe.isMoe && !boardHasAnyConfigured(p, BOARD_MOE_KEYS)));
+  const visibleComponents = ['model', 'vision', 'mtp', 'context', 'gpu', 'moe'].some((type) => {
     const el = document.querySelector(`.board-palette-card[data-board-type="${type}"]`);
     return el && el.style.display !== 'none';
   });
@@ -2105,6 +2142,9 @@ function renderBoard() {
     const gpuDetail = p.gpuLayersAll ? 'Todas las capas en GPU disponible' : `${p.gpuLayers || 0} capas`;
     blocks.push(boardBlock('gpu', 'GPU', gpuDetail + (p.mainGpu !== null && p.mainGpu !== undefined ? ` · principal ${p.mainGpu}` : ''), true));
   }
+  if (boardHasAnyConfigured(p, BOARD_MOE_KEYS)) {
+    blocks.push(boardBlock('moe', 'MoE', (p.nCpuMoe != null ? p.nCpuMoe : 0) + ' capas de expertos en CPU', true));
+  }
   $('#boardAssigned').innerHTML = blocks.join('');
   boardHydrateIcons($('#boardView'));
   $('#boardEmpty').style.display = blocks.length ? 'none' : '';
@@ -2117,6 +2157,7 @@ function renderBoard() {
   $('#boardRunBtn').disabled = problems.length > 0 && !running;
   $('#boardRunBtn').textContent = running ? t('btn_stop') : t('btn_start');
   $('#boardRunBtn').className = 'btn run-btn ' + (running ? 'running' : 'stopped');
+  if (p.modelPath) boardRefreshMoeInfo(p);
 }
 
 function boardCloseConfig() {
@@ -2187,7 +2228,7 @@ async function boardOpenConfig(type, payload) {
     }
   }
   boardConfig = { type, payload: payload || {} };
-  $('#boardConfigTitle').textContent = 'Configurar ' + ({ model: 'modelo', vision: 'visión', mtp: 'MTP', context: 'contexto', gpu: 'GPU' }[type] || 'objeto');
+  $('#boardConfigTitle').textContent = 'Configurar ' + ({ model: 'modelo', vision: 'visión', mtp: 'MTP', context: 'contexto', gpu: 'GPU', moe: 'MoE' }[type] || 'objeto');
   const body = $('#boardConfigBody');
   if (type === 'model') {
     const mains = modelsCache.filter((m) => modelKind(m) === 'main');
@@ -2247,6 +2288,13 @@ async function boardOpenConfig(type, payload) {
       <div class="field"><div class="field-head"><label>GPU principal</label></div><input id="boardCfgMainGpu" type="number" class="text-input" min="0" max="16" placeholder="Automática" value="${p.mainGpu === null || p.mainGpu === undefined ? '' : escapeHtml(p.mainGpu)}" /></div>
       <div class="field"><div class="field-head"><label>Tensor split</label></div><input id="boardCfgTensorSplit" class="text-input" placeholder="Ej: 1,1" value="${escapeHtml(p.tensorSplit || '')}" /></div>
       <div class="field"><div class="field-head"><label>Device</label></div><input id="boardCfgDevice" class="text-input" placeholder="Ej: CUDA0" value="${escapeHtml(p.device || '')}" /></div>`;
+  } else if (type === 'moe') {
+    const moe = boardMoeInfo(p) || {};
+    body.innerHTML = `
+      <div class="field"><div class="field-head"><label>Modelo MoE detectado</label></div><div class="board-picked-file">${escapeHtml(moe.moeSource || 'Metadata GGUF local')}${moe.nExperts ? ' · ' + escapeHtml(moe.nExperts) + ' expertos' : ''}</div></div>
+      <label class="check-field"><input id="boardCfgCpuMoe" type="checkbox" ${p.cpuMoe ? 'checked' : ''} /><span>Forzar expertos MoE en CPU</span></label>
+      <div class="field"><div class="field-head"><label>Capas de expertos en CPU (n-cpu-moe)</label></div><input id="boardCfgNCpuMoe" type="number" class="text-input" min="0" max="100000" value="${escapeHtml(p.nCpuMoe != null ? p.nCpuMoe : 0)}" /></div>
+      <p class="hint">0 deja todos los expertos en GPU cuando sea posible. Subí este valor para mover capas MoE a CPU y reducir VRAM.</p>`;
   }
   $('#boardConfigModal').classList.remove('hidden');
 }
@@ -2293,6 +2341,10 @@ function boardApplyConfig() {
       p.tensorSplit = $('#boardCfgTensorSplit').value.trim();
       p.device = $('#boardCfgDevice').value.trim();
       markConfigured(p, ...BOARD_GPU_KEYS);
+    } else if (type === 'moe') {
+      p.cpuMoe = $('#boardCfgCpuMoe').checked;
+      p.nCpuMoe = num($('#boardCfgNCpuMoe').value) || 0;
+      markConfigured(p, ...BOARD_MOE_KEYS);
     }
   });
   boardCloseConfig();
@@ -2314,6 +2366,10 @@ function boardRemoveBlock(type) {
       unmarkConfigured(p, ...BOARD_CONTEXT_KEYS);
     } else if (type === 'gpu') {
       unmarkConfigured(p, ...BOARD_GPU_KEYS);
+    } else if (type === 'moe') {
+      p.cpuMoe = false;
+      p.nCpuMoe = null;
+      unmarkConfigured(p, ...BOARD_MOE_KEYS);
     }
   });
 }

@@ -1273,6 +1273,13 @@ async function hfModelConfig(repo) {
     (Array.isArray(c.architectures) ? c.architectures[0] : '') ||
     (Array.isArray(data.architectures) ? data.architectures[0] : '') ||
     '';
+  const nExperts = hfNum(c.num_experts) || hfNum(c.n_routed_experts) || hfNum(c.num_local_experts) || hfNum(textCfg.num_experts) || null;
+  const isMoe = !!(
+    nExperts ||
+    /moe|mixtral|deepseek|qwen.*moe|olmoe/i.test(String(modelType || '')) ||
+    (Array.isArray(c.architectures) && c.architectures.some((a) => /moe|mixtral/i.test(String(a)))) ||
+    tags.some((t) => /moe|mixture-of-experts/i.test(String(t)))
+  );
   const genCfgRepo = await hfGenerationConfig(clean);
   const genCfgBase = sourceRepo !== clean ? await hfGenerationConfig(sourceRepo) : null;
   const readmeRepo = await hfReadmeParams(clean);
@@ -1282,6 +1289,8 @@ async function hfModelConfig(repo) {
     repo: clean,
     source: sourceRepo,
     modelType: String(modelType),
+    isMoe,
+    nExperts: nExperts && nExperts > 0 ? nExperts : null,
     ctxSize: ctxSize && ctxSize > 0 && ctxSize < 20000000 ? Math.round(ctxSize) : null,
     isVision: !!(
       visionCfg ||
