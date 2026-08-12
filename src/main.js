@@ -212,6 +212,7 @@ function inspectGgufModel(filePath) {
     let nHeadsKv = 0;
     let keyLen = 0;
     let valLen = 0;
+    let contextLength = 0;
     let isMoe = false;
     let nExperts = 0;
     for (let i = 0; i < nKv; i++) {
@@ -229,7 +230,11 @@ function inspectGgufModel(filePath) {
         else if (/\.attention\.head_count_kv$/.test(key)) nHeadsKv = val;
         else if (/\.attention\.key_length$/.test(key)) keyLen = val;
         else if (/\.attention\.value_length$/.test(key)) valLen = val;
+        else if (/\.context_length$/.test(key)) contextLength = val;
         else if (/\.expert_count$/.test(key)) nExperts = val;
+      } else if (type === 10) {
+        const val = Number(read(8).readBigUInt64LE(0));
+        if (/\.context_length$/.test(key)) contextLength = val;
       } else {
         skipValue(type, 1);
       }
@@ -277,6 +282,7 @@ function inspectGgufModel(filePath) {
       fileBytes: fs.fstatSync(fd).size,
       headDim: headDim > 0 ? headDim : null,
       nHeadKv: nHeadKv > 0 ? nHeadKv : null,
+      contextLength: contextLength > 0 ? contextLength : null,
       isMoe,
       nExperts: nExperts > 0 ? nExperts : null,
     };
@@ -1768,6 +1774,9 @@ async function runSmoke(win) {
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     document.getElementById('dashNewBtn').click();
     await sleep(150);
+    const boardOpened = !document.getElementById('boardView').classList.contains('hidden');
+    document.getElementById('boardWizardBtn').click();
+    await sleep(150);
     const opened = !document.getElementById('wizardModal').classList.contains('hidden');
     const stepCount = document.querySelectorAll('#wizardSteps .wizard-step-label').length;
     const installOptions = document.getElementById('wizInstall').options.length;
@@ -1821,7 +1830,7 @@ async function runSmoke(win) {
     const profileCount = document.querySelectorAll('#profileList .profile-item').length;
     const inDashboard = !document.getElementById('dashboardView').classList.contains('hidden');
     const lastItemText = Array.from(document.querySelectorAll('#profileList .profile-item')).pop().textContent;
-    return { opened, stepCount, installOptions, installVal, onModel, modelOptions, modelInfoText, ctxPresets, ctxDefault, ctxAfter, onVision, onMtp, vramOptions, vramInfo, onNet, hostVal, portVal, onDone, summary, cmd, finalBtnsVisible, closed, profileCount, inDashboard, lastItemText };
+    return { boardOpened, opened, stepCount, installOptions, installVal, onModel, modelOptions, modelInfoText, ctxPresets, ctxDefault, ctxAfter, onVision, onMtp, vramOptions, vramInfo, onNet, hostVal, portVal, onDone, summary, cmd, finalBtnsVisible, closed, profileCount, inDashboard, lastItemText };
   })()`);
 
   const ggufTest = await wc.executeJavaScript(`(async () => {

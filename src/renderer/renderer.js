@@ -305,10 +305,12 @@ let view = 'dashboard';
 let saveTimer = null;
 let dashSelMode = false;
 let dashSelected = new Set();
+let boardConfig = null;
 
 function showDashboard() {
   view = 'dashboard';
   $('#dashboardView').classList.remove('hidden');
+  $('#boardView').classList.add('hidden');
   $('#editorView').classList.add('hidden');
   $('#downloadsView').classList.add('hidden');
   $('#dashTopbar').classList.remove('hidden');
@@ -321,11 +323,31 @@ function showEditor() {
   if (dashSelMode) exitDashSelection();
   view = 'editor';
   $('#dashboardView').classList.add('hidden');
+  $('#boardView').classList.add('hidden');
   $('#editorView').classList.remove('hidden');
   $('#downloadsView').classList.add('hidden');
   $('#dashTopbar').classList.add('hidden');
   $('#dashNavBtn').classList.remove('active');
   $('#dlQueueNavBtn').classList.remove('active');
+}
+
+function showBoard() {
+  if (dashSelMode) exitDashSelection();
+  view = 'board';
+  $('#dashboardView').classList.add('hidden');
+  $('#boardView').classList.remove('hidden');
+  $('#editorView').classList.add('hidden');
+  $('#downloadsView').classList.add('hidden');
+  $('#dashTopbar').classList.add('hidden');
+  $('#dashNavBtn').classList.remove('active');
+  $('#dlQueueNavBtn').classList.remove('active');
+  setBoardTab('objects');
+  renderBoard();
+}
+
+function setBoardTab(name) {
+  document.querySelectorAll('.board-tab').forEach((b) => b.classList.toggle('active', b.dataset.boardTab === name));
+  document.querySelectorAll('.board-tab-panel').forEach((p) => p.classList.toggle('active', p.dataset.boardPanel === name));
 }
 
 function openCommand(id) {
@@ -448,6 +470,12 @@ function markConfigured(p) {
   const set = new Set(p.configured);
   keys.forEach((k) => set.add(k));
   p.configured = Array.from(set);
+}
+
+function unmarkConfigured(p) {
+  if (!p || !Array.isArray(p.configured)) return;
+  const keys = new Set(Array.from(arguments).slice(1));
+  p.configured = p.configured.filter((k) => !keys.has(k));
 }
 
 function current() {
@@ -864,6 +892,11 @@ function setRunning(value) {
   badge.className = 'badge ' + (value ? 'running' : 'stopped');
   btn.textContent = value ? t('btn_stop') : t('btn_start');
   btn.className = 'btn run-btn ' + (value ? 'running' : 'stopped');
+  const boardBtn = $('#boardRunBtn');
+  if (boardBtn) {
+    boardBtn.textContent = value ? t('btn_stop') : t('btn_start');
+    boardBtn.className = 'btn run-btn ' + (value ? 'running' : 'stopped');
+  }
   const dashBadge = $('#dashStatusBadge');
   dashBadge.textContent = value ? t('status_running') : t('status_stopped');
   dashBadge.className = 'badge ' + (value ? 'running' : 'stopped');
@@ -1940,6 +1973,322 @@ async function scanModels() {
   modelsCache = await scanAllModels();
   populateModelSelects();
   toast(modelsCache.length ? `Se encontraron ${modelsCache.length} modelos` : 'No se encontraron .gguf en esas carpetas', modelsCache.length ? 'ok' : 'err');
+}
+
+/* ---------------- Instance board ---------------- */
+
+const BOARD_CONTEXT_KEYS = ['ctxSize', 'cacheTypeK', 'cacheTypeV'];
+const BOARD_GPU_KEYS = ['gpuLayers', 'gpuLayersAll', 'mainGpu', 'tensorSplit', 'device'];
+const BOARD_MTP_KEYS = ['mtp', 'specDraftModel', 'specDraftNMax', 'specDraftNMin', 'specDraftPSplit'];
+
+function boardHasAnyConfigured(p, keys) {
+  return !!(p && Array.isArray(p.configured) && keys.some((k) => p.configured.includes(k)));
+}
+
+function boardOptionHtml(items, emptyLabel) {
+  return '<option value="">' + escapeHtml(emptyLabel) + '</option>' + items
+    .map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(modelLabel(m))}</option>`)
+    .join('');
+}
+
+function boardIcon(type) {
+  const icons = {
+    model: '<svg viewBox="0 0 24 24"><path d="M12 3 3 7.5l9 4.5 9-4.5L12 3Z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5 12 21l9-4.5"/></svg>',
+    vision: '<svg viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="3"/></svg>',
+    mtp: '<svg viewBox="0 0 24 24"><path d="m4 5 8 7-8 7V5Z"/><path d="m12 5 8 7-8 7V5Z"/></svg>',
+    context: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+    gpu: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></svg>',
+  };
+  return icons[type] || icons.model;
+}
+
+function boardHydrateIcons(root) {
+  (root || document).querySelectorAll('[data-icon]').forEach((el) => {
+    el.innerHTML = boardIcon(el.dataset.icon);
+  });
+}
+
+function boardRelatedModelFile(kind) {
+  const p = current();
+  if (!p || !p.modelPath) return '';
+  const dir = String(p.modelPath).replace(/[\\/][^\\/]+$/, '').toLowerCase();
+  const candidates = modelsCache.filter((m) => modelKind(m) === kind && String(m).replace(/[\\/][^\\/]+$/, '').toLowerCase() === dir);
+  return candidates.length === 1 ? candidates[0] : '';
+}
+
+function openBoardForNewProfile() {
+  const p = defaultProfile();
+  const installs = settings.installations || [];
+  if (installs.length) p.installId = installs[0].id;
+  profiles.push(p);
+  selectProfile(p.id);
+  showBoard();
+  $('#boardNameInput').focus();
+  scheduleSave();
+}
+
+function renderBoardPalette() {
+  const p = current();
+  const setComponentVisible = (type, visible) => {
+    const el = document.querySelector(`.board-palette-card[data-board-type="${type}"]`);
+    if (el) el.style.display = visible ? '' : 'none';
+  };
+  setComponentVisible('model', !(p && p.modelPath));
+  setComponentVisible('vision', !(p && p.mmprojPath));
+  setComponentVisible('mtp', !(p && p.mtp));
+  setComponentVisible('context', !(p && boardHasAnyConfigured(p, BOARD_CONTEXT_KEYS)));
+  setComponentVisible('gpu', !(p && boardHasAnyConfigured(p, BOARD_GPU_KEYS)));
+  const visibleComponents = ['model', 'vision', 'mtp', 'context', 'gpu'].some((type) => {
+    const el = document.querySelector(`.board-palette-card[data-board-type="${type}"]`);
+    return el && el.style.display !== 'none';
+  });
+  $('#boardComponentsEmpty').classList.toggle('hidden', visibleComponents);
+  boardHydrateIcons($('#boardView'));
+}
+
+function boardBlock(type, title, detail, configured) {
+  return `
+    <div class="board-block ${configured ? '' : 'muted'}" data-board-block="${escapeHtml(type)}" draggable="${configured ? 'true' : 'false'}">
+      <div class="board-block-main">
+        <div class="board-block-icon">${boardIcon(type)}</div>
+        <div class="board-block-copy">
+          <span class="board-block-kicker">${configured ? 'Asignado' : 'Sugerido'}</span>
+          <b>${escapeHtml(title)}</b>
+          <span>${escapeHtml(detail)}</span>
+        </div>
+      </div>
+      <div class="board-block-actions">
+        <button class="btn small ghost" data-board-edit="${escapeHtml(type)}">Editar</button>
+      </div>
+    </div>`;
+}
+
+function renderBoard() {
+  renderBoardPalette();
+  const p = current();
+  if (!p) return;
+  const nameInput = $('#boardNameInput');
+  if (nameInput) nameInput.value = p.name || '';
+  const blocks = [];
+  if (p.modelPath) blocks.push(boardBlock('model', 'Modelo', modelLabel(p.modelPath), true));
+  if (p.mmprojPath) blocks.push(boardBlock('vision', 'Visión', modelLabel(p.mmprojPath), true));
+  if (p.mtp) blocks.push(boardBlock('mtp', 'MTP', p.specDraftModel ? modelLabel(p.specDraftModel) : 'MTP incluido en el modelo', true));
+  if (boardHasAnyConfigured(p, BOARD_CONTEXT_KEYS)) blocks.push(boardBlock('context', 'Contexto', `${p.ctxSize || 0} tokens · KV ${String(p.cacheTypeK || 'f16').toUpperCase()}/${String(p.cacheTypeV || 'f16').toUpperCase()}`, true));
+  if (boardHasAnyConfigured(p, BOARD_GPU_KEYS)) {
+    const gpuDetail = p.gpuLayersAll ? 'Todas las capas en GPU disponible' : `${p.gpuLayers || 0} capas`;
+    blocks.push(boardBlock('gpu', 'GPU', gpuDetail + (p.mainGpu !== null && p.mainGpu !== undefined ? ` · principal ${p.mainGpu}` : ''), true));
+  }
+  $('#boardAssigned').innerHTML = blocks.join('');
+  boardHydrateIcons($('#boardView'));
+  $('#boardEmpty').style.display = blocks.length ? 'none' : '';
+  const problems = profileProblems(p);
+  const status = $('#boardStatus');
+  status.textContent = problems.length ? 'Incompleta' : 'Lista';
+  status.className = 'board-status ' + (problems.length ? 'warn' : 'ok');
+  $('#boardValidation').textContent = problems.length ? problems[0] : 'Lista para ejecutar.';
+  $('#boardCommand').textContent = buildCommandLine(p);
+  $('#boardRunBtn').disabled = problems.length > 0 && !running;
+  $('#boardRunBtn').textContent = running ? t('btn_stop') : t('btn_start');
+  $('#boardRunBtn').className = 'btn run-btn ' + (running ? 'running' : 'stopped');
+}
+
+function boardCloseConfig() {
+  boardConfig = null;
+  $('#boardConfigModal').classList.add('hidden');
+}
+
+function boardApplyAndRefresh(applyFn) {
+  const p = current();
+  if (!p) return;
+  applyFn(p);
+  scheduleSave();
+  syncDetail();
+  renderBoard();
+}
+
+async function boardModelInfoForContext(p) {
+  if (!p || !p.modelPath) return null;
+  if (currentModelInfo && lastModelPath === p.modelPath) return currentModelInfo;
+  let info = null;
+  try {
+    const res = await window.api.inspectModel(p.modelPath);
+    if (res && res.ok) info = res;
+  } catch (e) {}
+  currentModelInfo = info;
+  lastModelPath = p.modelPath;
+  return info;
+}
+
+function boardUpdateContextInfo(info) {
+  const ctxInput = $('#boardCfgCtx');
+  const activeKv = document.querySelector('#boardCfgKvCards .board-kv-card.active');
+  const out = $('#boardCfgCtxInfo');
+  if (!ctxInput || !out) return;
+  const ctx = num(ctxInput.value) || 0;
+  const kvIdx = activeKv ? Number(activeKv.dataset.kvIndex) : 0;
+  const preset = KV_PRESETS[kvIdx] || KV_PRESETS[0];
+  if (!info || !info.headDim || !ctx) {
+    out.innerHTML = 'Preset de contexto: <b>' + ctx + '</b> tokens.';
+    return;
+  }
+  const p = Object.assign(defaultProfile(), current() || {}, {
+    ctxSize: ctx,
+    cacheTypeK: preset.values.cacheTypeK,
+    cacheTypeV: preset.values.cacheTypeV,
+  });
+  const est = estimateVram(p, info);
+  const rec = info.contextLength ? ' · recomendado por el modelo: <b>' + info.contextLength + '</b>' : '';
+  out.innerHTML = 'Preset de contexto: <b>' + ctx + '</b> tokens' + rec + ' · KV cache ≈ <b>' + fmtGb(est.kvBytes) + '</b> (con KV ' +
+    p.cacheTypeK.toUpperCase() + '/' + p.cacheTypeV.toUpperCase() + ').';
+}
+
+async function boardOpenConfig(type, payload) {
+  const p = current();
+  if (!p) return;
+  const visions = modelsCache.filter((m) => modelKind(m) === 'vision');
+  const mtps = modelsCache.filter((m) => modelKind(m) === 'mtp');
+  const installs = settings.installations || [];
+  if (type === 'vision') {
+    const related = boardRelatedModelFile('vision');
+    if (related) {
+      boardApplyAndRefresh((prof) => {
+        prof.mmprojPath = related;
+        markConfigured(prof, 'mmprojPath');
+      });
+      toast('Visión agregada: ' + modelLabel(related), 'ok');
+      return;
+    }
+  }
+  boardConfig = { type, payload: payload || {} };
+  $('#boardConfigTitle').textContent = 'Configurar ' + ({ model: 'modelo', vision: 'visión', mtp: 'MTP', context: 'contexto', gpu: 'GPU' }[type] || 'objeto');
+  const body = $('#boardConfigBody');
+  if (type === 'model') {
+    const mains = modelsCache.filter((m) => modelKind(m) === 'main');
+    const modelPath = payload && payload.path ? payload.path : p.modelPath;
+    body.innerHTML = `
+      <div class="field"><div class="field-head"><label>Versión de llama.cpp</label></div><select id="boardCfgInstall" class="text-input">${'<option value="">— Elegir versión —</option>' + installs.map((i) => `<option value="${escapeHtml(i.id)}">${escapeHtml(installLabel(i))}</option>`).join('')}</select></div>
+      <div class="field"><div class="field-head"><label>Modelo descargado</label></div><select id="boardCfgModel" class="text-input">${boardOptionHtml(mains, '— Elegir modelo GGUF —')}</select></div>`;
+    $('#boardCfgInstall').value = p.installId || (installs[0] && installs[0].id) || '';
+    $('#boardCfgModel').value = modelPath || '';
+  } else if (type === 'vision') {
+    const related = boardRelatedModelFile('vision');
+    if (related) {
+      body.innerHTML = `<div class="field"><div class="field-head"><label>Archivo MMProj detectado</label></div><div class="board-picked-file">${escapeHtml(modelLabel(related))}</div><input id="boardCfgVisionFile" type="hidden" value="${escapeHtml(related)}" /></div>`;
+    } else {
+      body.innerHTML = `<div class="field"><div class="field-head"><label>Archivo MMProj</label></div><select id="boardCfgVisionFile" class="text-input">${boardOptionHtml(visions, '— Elegir archivo MMProj —')}</select></div>`;
+      $('#boardCfgVisionFile').value = p.mmprojPath || '';
+    }
+  } else if (type === 'mtp') {
+    const related = boardRelatedModelFile('mtp');
+    body.innerHTML = `
+      ${related ? `<div class="field"><div class="field-head"><label>Archivo MTP detectado</label></div><div class="board-picked-file">${escapeHtml(modelLabel(related))}</div><input id="boardCfgMtpFile" type="hidden" value="${escapeHtml(related)}" /></div>` : `<label class="check-field"><input id="boardCfgMtpBuiltin" type="checkbox" ${p.specDraftModel ? '' : 'checked'} /><span>Usar el MTP incluido en el modelo</span></label><div class="field"><div class="field-head"><label>Archivo MTP separado</label></div><select id="boardCfgMtpFile" class="text-input">${boardOptionHtml(mtps, '— Elegir archivo MTP —')}</select></div>`}
+      <div class="field"><div class="field-head"><label>Tokens a predecir</label></div><input id="boardCfgMtpNMax" type="number" class="text-input" min="1" max="32" value="${escapeHtml(p.specDraftNMax || 3)}" /></div>
+      <div class="field"><div class="field-head"><label>Tokens mínimos</label></div><input id="boardCfgMtpNMin" type="number" class="text-input" min="0" max="32" value="${escapeHtml(p.specDraftNMin || 0)}" /></div>
+      <div class="field"><div class="field-head"><label>Probabilidad de split</label></div><input id="boardCfgMtpPSplit" type="number" class="text-input" min="0" max="1" step="0.05" value="${escapeHtml(p.specDraftPSplit || 0.1)}" /></div>`;
+    if (!related) $('#boardCfgMtpFile').value = p.specDraftModel || '';
+  } else if (type === 'context') {
+    const info = await boardModelInfoForContext(p);
+    const ctxValue = !boardHasAnyConfigured(p, BOARD_CONTEXT_KEYS) && info && info.contextLength ? info.contextLength : (p.ctxSize || 4096);
+    body.innerHTML = `
+      <div class="field"><div class="field-head"><label>Contexto (ctx-size)</label></div>
+        <div class="preset-row board-ctx-presets">${WIZARD_CTX_PRESETS.map((v) => `<button class="preset-btn" type="button" data-board-ctx="${v}">${v >= 1024 ? v / 1024 + 'K' : v}</button>`).join('')}</div>
+        <div class="pickrow"><input id="boardCfgCtx" type="number" class="text-input" min="64" max="1000000" value="${escapeHtml(ctxValue)}" /><span class="hint">tokens</span></div>
+        <p id="boardCfgCtxInfo" class="hint"></p>
+      </div>
+      <div class="field"><div class="field-head"><label>Cuantización del contexto (KV cache)</label></div>
+        <div id="boardCfgKvCards" class="board-kv-grid">${KV_PRESETS.map((x, i) => `<button type="button" class="board-kv-card" data-kv-index="${i}"><b>${escapeHtml(x.label)}</b><span>${escapeHtml(x.values.cacheTypeK.toUpperCase() + '/' + x.values.cacheTypeV.toUpperCase())}</span><small>${escapeHtml(x.desc)}</small></button>`).join('')}</div>
+      </div>`;
+    const kvIdx = Math.max(0, KV_PRESETS.findIndex((x) => x.values.cacheTypeK === p.cacheTypeK && x.values.cacheTypeV === p.cacheTypeV));
+    const selectKv = (idx) => {
+      body.querySelectorAll('.board-kv-card').forEach((b) => b.classList.toggle('active', Number(b.dataset.kvIndex) === idx));
+      boardUpdateContextInfo(info);
+    };
+    selectKv(kvIdx);
+    body.querySelectorAll('[data-board-ctx]').forEach((b) => b.addEventListener('click', () => {
+      $('#boardCfgCtx').value = b.dataset.boardCtx;
+      body.querySelectorAll('[data-board-ctx]').forEach((x) => x.classList.toggle('active', x === b));
+      boardUpdateContextInfo(info);
+    }));
+    body.querySelectorAll('.board-kv-card').forEach((b) => b.addEventListener('click', () => selectKv(Number(b.dataset.kvIndex))));
+    $('#boardCfgCtx').addEventListener('input', () => boardUpdateContextInfo(info));
+    body.querySelectorAll('[data-board-ctx]').forEach((b) => b.classList.toggle('active', Number(b.dataset.boardCtx) === Number(ctxValue)));
+    boardUpdateContextInfo(info);
+  } else if (type === 'gpu') {
+    body.innerHTML = `
+      <label class="check-field"><input id="boardCfgGpuAll" type="checkbox" ${p.gpuLayersAll ? 'checked' : ''} /><span>Cargar todas las capas posibles en GPU</span></label>
+      <div class="field"><div class="field-head"><label>Capas en GPU</label></div><input id="boardCfgGpuLayers" type="number" class="text-input" min="0" max="999" value="${escapeHtml(p.gpuLayers || 0)}" /></div>
+      <div class="field"><div class="field-head"><label>GPU principal</label></div><input id="boardCfgMainGpu" type="number" class="text-input" min="0" max="16" placeholder="Automática" value="${p.mainGpu === null || p.mainGpu === undefined ? '' : escapeHtml(p.mainGpu)}" /></div>
+      <div class="field"><div class="field-head"><label>Tensor split</label></div><input id="boardCfgTensorSplit" class="text-input" placeholder="Ej: 1,1" value="${escapeHtml(p.tensorSplit || '')}" /></div>
+      <div class="field"><div class="field-head"><label>Device</label></div><input id="boardCfgDevice" class="text-input" placeholder="Ej: CUDA0" value="${escapeHtml(p.device || '')}" /></div>`;
+  }
+  $('#boardConfigModal').classList.remove('hidden');
+}
+
+function boardApplyConfig() {
+  if (!boardConfig) return;
+  const type = boardConfig.type;
+  const payload = boardConfig.payload || {};
+  if (type === 'model' && !(payload.path || $('#boardCfgModel').value)) {
+    toast('Elegí un modelo descargado', 'err');
+    return;
+  }
+  boardApplyAndRefresh((p) => {
+    if (type === 'model') {
+      const modelPath = payload.path || $('#boardCfgModel').value || p.modelPath;
+      p.installId = $('#boardCfgInstall').value || p.installId;
+      p.modelPath = modelPath;
+      if ((!p.name || p.name === 'Nueva instancia') && modelPath) p.name = modelPath.split(/[\\/]/).pop().replace(/\.gguf$/i, '');
+      markConfigured(p, 'modelPath');
+    } else if (type === 'vision') {
+      p.mmprojPath = $('#boardCfgVisionFile').value || '';
+      if (p.mmprojPath) markConfigured(p, 'mmprojPath');
+    } else if (type === 'mtp') {
+      p.mtp = true;
+      const builtin = $('#boardCfgMtpBuiltin');
+      p.specDraftModel = builtin && builtin.checked ? '' : ($('#boardCfgMtpFile').value || '');
+      p.specDraftNMax = num($('#boardCfgMtpNMax').value) || 3;
+      p.specDraftNMin = num($('#boardCfgMtpNMin').value) || 0;
+      p.specDraftPSplit = num($('#boardCfgMtpPSplit').value);
+      if (p.specDraftPSplit === null) p.specDraftPSplit = 0.1;
+      markConfigured(p, ...BOARD_MTP_KEYS);
+    } else if (type === 'context') {
+      const ctx = num($('#boardCfgCtx').value);
+      p.ctxSize = ctx !== null && ctx >= 64 ? ctx : 4096;
+      const activeKv = document.querySelector('#boardCfgKvCards .board-kv-card.active');
+      const preset = KV_PRESETS[activeKv ? Number(activeKv.dataset.kvIndex) : 0] || KV_PRESETS[0];
+      p.cacheTypeK = preset.values.cacheTypeK;
+      p.cacheTypeV = preset.values.cacheTypeV;
+      markConfigured(p, ...BOARD_CONTEXT_KEYS);
+    } else if (type === 'gpu') {
+      p.gpuLayersAll = $('#boardCfgGpuAll').checked;
+      p.gpuLayers = num($('#boardCfgGpuLayers').value) || 0;
+      p.mainGpu = num($('#boardCfgMainGpu').value);
+      p.tensorSplit = $('#boardCfgTensorSplit').value.trim();
+      p.device = $('#boardCfgDevice').value.trim();
+      markConfigured(p, ...BOARD_GPU_KEYS);
+    }
+  });
+  boardCloseConfig();
+}
+
+function boardRemoveBlock(type) {
+  boardApplyAndRefresh((p) => {
+    if (type === 'model') {
+      p.modelPath = '';
+      unmarkConfigured(p, 'modelPath');
+    } else if (type === 'vision') {
+      p.mmprojPath = '';
+      unmarkConfigured(p, 'mmprojPath');
+    } else if (type === 'mtp') {
+      p.mtp = false;
+      p.specDraftModel = '';
+      unmarkConfigured(p, ...BOARD_MTP_KEYS);
+    } else if (type === 'context') {
+      unmarkConfigured(p, ...BOARD_CONTEXT_KEYS);
+    } else if (type === 'gpu') {
+      unmarkConfigured(p, ...BOARD_GPU_KEYS);
+    }
+  });
 }
 
 /* ---------------- Settings ---------------- */
@@ -3978,6 +4327,7 @@ const dlq = { items: {} };
 function showDownloads() {
   view = 'downloads';
   $('#dashboardView').classList.add('hidden');
+  $('#boardView').classList.add('hidden');
   $('#editorView').classList.add('hidden');
   $('#downloadsView').classList.remove('hidden');
   $('#dashTopbar').classList.add('hidden');
@@ -4097,7 +4447,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const createNewCommand = () => {
     if (dashSelMode) exitDashSelection();
-    openWizard();
+    openBoardForNewProfile();
   };
 
   $('#dashNavBtn').addEventListener('click', () => {
@@ -4127,6 +4477,87 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#dashEmptyNewBtn').addEventListener('click', () => {
     if (dashSelMode) exitDashSelection();
     createNewCommand();
+  });
+  $('#boardBackBtn').addEventListener('click', showDashboard);
+  $('#boardDetailsBtn').addEventListener('click', showEditor);
+  $('#boardWizardBtn').addEventListener('click', openWizard);
+  $('#editorBoardBtn').addEventListener('click', showBoard);
+  document.querySelectorAll('.board-tab').forEach((b) => b.addEventListener('click', () => setBoardTab(b.dataset.boardTab)));
+  $('#boardNameInput').addEventListener('input', (e) => {
+    if (current()) {
+      current().name = e.target.value;
+      renderSidebar();
+      renderDashboard();
+      scheduleSave();
+    }
+  });
+  $('#boardSaveBtn').addEventListener('click', () => {
+    scheduleSave();
+    renderSidebar();
+    renderDashboard();
+    toast(t('toast_settings_saved'), 'ok');
+  });
+  $('#boardRunBtn').addEventListener('click', toggleServer);
+  $('#boardRescanBtn').addEventListener('click', async () => {
+    modelsCache = await scanAllModels();
+    populateModelSelects();
+    renderBoard();
+    toast('Modelos re-escaneados (' + modelsCache.length + ')', 'ok');
+  });
+  $('#boardView').addEventListener('dragstart', (e) => {
+    if (e.target.closest('button')) {
+      e.preventDefault();
+      return;
+    }
+    const block = e.target.closest('[data-board-block]');
+    if (block) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('application/json', JSON.stringify({ type: block.dataset.boardBlock, assigned: true }));
+      return;
+    }
+    const item = e.target.closest('[data-board-type]');
+    if (!item) return;
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/json', JSON.stringify({ type: item.dataset.boardType, path: item.dataset.path || '' }));
+  });
+  $('#boardDropzone').addEventListener('dragover', (e) => {
+    e.preventDefault();
+    $('#boardDropzone').classList.add('drag-over');
+  });
+  $('#boardDropzone').addEventListener('dragleave', (e) => {
+    if (!$('#boardDropzone').contains(e.relatedTarget)) $('#boardDropzone').classList.remove('drag-over');
+  });
+  $('#boardDropzone').addEventListener('drop', (e) => {
+    e.preventDefault();
+    $('#boardDropzone').classList.remove('drag-over');
+    let data = null;
+    try { data = JSON.parse(e.dataTransfer.getData('application/json') || '{}'); } catch (err) {}
+    if (data && data.assigned) return;
+    if (data && data.type) boardOpenConfig(data.type, data);
+  });
+  $('#boardAssigned').addEventListener('click', (e) => {
+    const edit = e.target.closest('[data-board-edit]');
+    if (edit) boardOpenConfig(edit.dataset.boardEdit, {});
+  });
+  $('.board-palette').addEventListener('dragover', (e) => {
+    e.preventDefault();
+    $('.board-palette').classList.add('drag-over');
+  });
+  $('.board-palette').addEventListener('dragleave', (e) => {
+    if (!$('.board-palette').contains(e.relatedTarget)) $('.board-palette').classList.remove('drag-over');
+  });
+  $('.board-palette').addEventListener('drop', (e) => {
+    e.preventDefault();
+    $('.board-palette').classList.remove('drag-over');
+    let data = null;
+    try { data = JSON.parse(e.dataTransfer.getData('application/json') || '{}'); } catch (err) {}
+    if (data && data.assigned && data.type) boardRemoveBlock(data.type);
+  });
+  $('#boardConfigClose').addEventListener('click', boardCloseConfig);
+  $('#boardConfigCancel').addEventListener('click', boardCloseConfig);
+  $('#boardConfigApply').addEventListener('click', boardApplyConfig);
+  $('#boardConfigModal').addEventListener('click', (e) => {
+    if (e.target === $('#boardConfigModal')) boardCloseConfig();
   });
   $('#gearBtn').addEventListener('click', openSettings);
   $('#dupBtn').addEventListener('click', duplicateProfile);

@@ -122,11 +122,75 @@
       </div>
     </div>
 
+    <div id="boardView" class="board-view hidden">
+      <header class="topbar">
+        <button id="boardBackBtn" class="btn icon-btn">← Volver</button>
+        <input id="boardNameInput" class="name-input" placeholder="Nombre de la instancia" />
+        <div class="top-actions">
+          <button id="boardWizardBtn" class="btn icon-btn">Asistente</button>
+          <button id="boardDetailsBtn" class="btn icon-btn">Ver detalles</button>
+          <button id="boardSaveBtn" class="btn">Guardar</button>
+          <button id="boardRunBtn" class="btn run-btn stopped">Iniciar</button>
+        </div>
+      </header>
+
+      <div class="board-shell">
+        <aside class="board-palette">
+          <div class="board-section-head">
+            <div>
+              <h2>Objetos disponibles</h2>
+              <p>Arrastrá componentes para componer la instancia.</p>
+            </div>
+            <button id="boardRescanBtn" class="btn small ghost">Re-escanear</button>
+          </div>
+          <div class="board-palette-group">
+            <div class="board-group-title">Componentes</div>
+            <div class="board-component-grid">
+              <div class="board-palette-card" draggable="true" data-board-type="model"><span class="board-palette-icon" data-icon="model"></span><b>Modelo</b><span>Elegir GGUF descargado</span></div>
+              <div class="board-palette-card" draggable="true" data-board-type="vision"><span class="board-palette-icon" data-icon="vision"></span><b>Visión</b><span>MMProj para imágenes</span></div>
+              <div class="board-palette-card" draggable="true" data-board-type="mtp"><span class="board-palette-icon" data-icon="mtp"></span><b>MTP</b><span>Predicción multi-token</span></div>
+              <div class="board-palette-card" draggable="true" data-board-type="context"><span class="board-palette-icon" data-icon="context"></span><b>Contexto</b><span>Tokens y KV cache</span></div>
+              <div class="board-palette-card" draggable="true" data-board-type="gpu"><span class="board-palette-icon" data-icon="gpu"></span><b>GPU</b><span>Capas y asignación</span></div>
+            </div>
+            <div id="boardComponentsEmpty" class="board-empty-inline hidden">Todos los componentes principales ya están asignados.</div>
+          </div>
+        </aside>
+
+        <section class="board-workspace">
+          <nav class="board-tabs">
+            <button class="board-tab active" data-board-tab="objects">Objetos</button>
+            <button class="board-tab" data-board-tab="command">Comando</button>
+          </nav>
+
+          <div class="board-dropzone board-tab-panel active" id="boardDropzone" data-board-panel="objects">
+            <div class="board-section-head">
+              <div>
+                <h2>Objetos asignados</h2>
+                <p>La instancia se valida y genera el comando a medida que agregás bloques.</p>
+              </div>
+              <span id="boardStatus" class="board-status warn">Incompleta</span>
+            </div>
+            <div id="boardAssigned" class="board-assigned"></div>
+            <div id="boardEmpty" class="board-empty">Soltá acá un modelo para empezar.</div>
+          </div>
+
+          <div class="board-command-card board-tab-panel" data-board-panel="command">
+            <div class="board-command-head">
+              <span>Comando generado</span>
+              <span id="boardValidation" class="hint"></span>
+            </div>
+            <pre id="boardCommand" class="board-command"></pre>
+          </div>
+        </section>
+      </div>
+    </div>
+
     <div id="editorView" class="editor-view hidden">
       <header class="topbar">
         <button id="backBtn" class="btn icon-btn" data-i18n-title="btn_back" title="Volver al dashboard" data-i18n="btn_back">← Volver</button>
         <input id="nameInput" class="name-input" data-i18n-placeholder="input_name_ph" placeholder="Nombre de la instancia" />
         <div class="top-actions">
+          <button id="editorBoardBtn" class="btn icon-btn">Tablero</button>
           <button id="dupBtn" class="btn icon-btn" data-i18n-title="btn_dup" title="Duplicar instancia" data-i18n="btn_dup">Duplicar</button>
           <button id="delBtn" class="btn icon-btn danger" data-i18n-title="btn_del" title="Eliminar instancia" data-i18n="btn_del">Eliminar</button>
           <span id="statusBadge" class="badge stopped" data-i18n="status_stopped">Detenido</span>
@@ -287,6 +351,20 @@
           <button id="wizardRunBtn" class="btn btn-accent">Finalizar y ejecutar</button>
           <button id="wizardDetailsBtn" class="btn ghost">Ver detalles</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="boardConfigModal" class="modal hidden">
+    <div class="modal-card modal-card-sm board-config-card">
+      <div class="modal-head">
+        <span id="boardConfigTitle">Configurar objeto</span>
+        <button id="boardConfigClose" class="modal-x" title="Cerrar" aria-label="Cerrar">✕</button>
+      </div>
+      <div id="boardConfigBody" class="modal-body"></div>
+      <div class="modal-foot">
+        <button id="boardConfigCancel" class="btn ghost">Cancelar</button>
+        <button id="boardConfigApply" class="btn btn-accent">Agregar</button>
       </div>
     </div>
   </div>
