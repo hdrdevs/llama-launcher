@@ -13,8 +13,9 @@ let serverErrBuf = '';
 /* ---------------- System stats monitor ---------------- */
 
 let prevCpuTimes = null;
-let gpuTotal = null;
-let gpuUsed = null;
+let gpuTotal = null; // VRAM total (bytes), sumado sobre los adapters
+let gpuUsed = null; // VRAM en uso (bytes), sumado sobre los adapters
+let gpuUsages = {}; // adapter (LUID) -> dedicated usage en bytes
 let gpuProc = null;
 let gpuBuf = '';
 
@@ -40,30 +41,45 @@ function readCpuPct() {
 }
 
 function detectGpuTotal() {
-  const p = spawn(
-    'powershell',
-    ['-NoProfile', '-Command', 'Get-CimInstance Win32_VideoController | ForEach-Object { [int64]$_.AdapterRAM }'],
-    { windowsHide: true }
-  );
+  // La capacidad de VRAM se lee del registro de drivers (REG_QWORD, soporta >4 GB).
+  // Win32_VideoController.AdapterRAM es UInt32 y se trunca en ~4 GB, así que queda
+  // solo como respaldo para drivers que no publiquen qwMemorySize.
+  const script =
+    "$cls = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}'; " +
+    '$total = 0; ' +
+    "Get-ChildItem $cls -ErrorAction SilentlyContinue | ForEach-Object { " +
+    "$key = $_.PSChildName; " +
+    "if ($key -eq 'Configuration' -or $key -eq 'Properties') { return }; " +
+    'try { ' +
+    "$p = Get-ItemProperty $_.PSPath; " +
+    "$v = $p.'HardwareInformation.qwMemorySize'; " +
+    'if ($null -ne $v -and $v -gt 0) { $total += $v } ' +
+    '} catch {} ' +
+    '}; ' +
+    'if ($total -le 0) { ' +
+    'Get-CimInstance Win32_VideoController | ForEach-Object { ' +
+    '$v = [int64]$_.AdapterRAM; ' +
+    'if ($v -gt $total) { $total = $v } ' +
+    '} ' +
+    '}; ' +
+    "'GPUTOTAL ' + $total";
+  const p = spawn('powershell', ['-NoProfile', '-Command', script], { windowsHide: true });
   let out = Buffer.alloc(0);
   p.stdout.on('data', (d) => {
     out = Buffer.concat([out, d]);
   });
   p.on('close', () => {
     const text = out.includes(0) ? out.toString('utf16le') : out.toString('utf8');
-    let max = 0;
-    for (const line of text.split(/\r?\n/)) {
-      const n = Number(line.trim());
-      if (Number.isFinite(n) && n > max) max = n;
-    }
-    if (max > 0) gpuTotal = max;
+    const m = text.match(/GPUTOTAL\s+(\d+)/);
+    const n = m ? Number(m[1]) : 0;
+    if (n > 0) gpuTotal = n;
   });
   p.on('error', () => {});
 }
 
 function startGpuMonitor() {
   const script =
-    "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -Continuous -SampleInterval 1 | ForEach-Object { $vals = @($_.CounterSamples | ForEach-Object { [int64]$_.CookedValue }); 'GPU ' + ($vals -join '|') }";
+    "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -Continuous -SampleInterval 1 | ForEach-Object { foreach ($s in $_.CounterSamples) { $p = [string]$s.Path; $li = $p.LastIndexOf('\\'); $before = $p.Substring(0, $li); $open = $before.IndexOf('('); $close = $before.LastIndexOf(')'); if ($open -ge 0 -and $close -gt $open) { $name = $before.Substring($open + 1, $close - $open - 1) } else { $name = $before }; 'GPU|' + $name + '|' + [int64]$s.CookedValue } }";
   try {
     gpuProc = spawn('powershell', ['-NoProfile', '-Command', script], { windowsHide: true });
   } catch (e) {
@@ -75,14 +91,13 @@ function startGpuMonitor() {
     while ((i = gpuBuf.indexOf('\n')) >= 0) {
       const line = gpuBuf.slice(0, i).trim();
       gpuBuf = gpuBuf.slice(i + 1);
-      if (line.startsWith('GPU ')) {
-        const vals = line
-          .slice(4)
-          .split('|')
-          .map((s) => Number(s))
-          .filter((n) => Number.isFinite(n));
-        if (vals.length) gpuUsed = Math.max(...vals);
-      }
+      if (!line.startsWith('GPU|')) continue;
+      const parts = line.split('|');
+      if (parts.length < 3) continue;
+      const value = Number(parts[2]);
+      if (!Number.isFinite(value) || value <= 0) continue;
+      gpuUsages[parts[1]] = value;
+      gpuUsed = Object.keys(gpuUsages).reduce((acc, k) => acc + gpuUsages[k], 0);
     }
   });
   gpuProc.on('error', () => {});
@@ -442,6 +457,10 @@ function releaseWinAssets(release, arch) {
   const reCudaLegacy = new RegExp('^llama-b\\d+-bin-win-(cuda|cublas)-' + arch + '\\.zip$', 'i');
   const reCudart = new RegExp('^cudart-llama-bin-win-cuda-([\\d.]+)-' + arch + '\\.zip$', 'i');
   const reCudartLegacy = new RegExp('^cudart-llama-bin-win-(cuda|cublas)-' + arch + '\\.zip$', 'i');
+  // La API de GitHub devuelve los assets en orden alfabético: los zips "cudart-…"
+  // aparecen antes que los "llama-b…", así que el cudart se recopila en una primera
+  // pasada y se adjunta a su build CUDA en una segunda, sin depender del orden.
+  const cudarts = [];
   for (const a of release.assets || []) {
     if (reCpu.test(a.name)) out.cpu = a;
     else if (reVulkan.test(a.name)) out.vulkan = a;
@@ -450,13 +469,14 @@ function releaseWinAssets(release, arch) {
     } else if (reCudaLegacy.test(a.name)) {
       out.cuda.push({ version: '', asset: a, cudart: null });
     } else if (reCudart.test(a.name)) {
-      const v = reCudart.exec(a.name)[1];
-      const c = out.cuda.find((x) => x.version === v);
-      if (c) c.cudart = a;
+      cudarts.push({ version: reCudart.exec(a.name)[1], asset: a });
     } else if (reCudartLegacy.test(a.name)) {
-      const c = out.cuda.find((x) => x.version === '');
-      if (c) c.cudart = a;
+      cudarts.push({ version: '', asset: a });
     }
+  }
+  for (const c of cudarts) {
+    const cu = out.cuda.find((x) => x.version === c.version);
+    if (cu) cu.cudart = c.asset;
   }
   return out;
 }
@@ -1940,6 +1960,14 @@ function registerIpc() {
     return false;
   });
 
+
+  ipcMain.handle('shell:openPath', async (_e, dir) => {
+    if (typeof dir === 'string' && dir && fs.existsSync(dir)) {
+      await shell.openPath(dir);
+      return { ok: true };
+    }
+    return { ok: false, error: 'La carpeta no existe' };
+  });
 
   ipcMain.handle('model:inspect', (_e, filePath) => {
     const info = typeof filePath === 'string' && filePath ? inspectGgufModel(filePath) : null;

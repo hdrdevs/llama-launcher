@@ -450,9 +450,8 @@ body {
 
 .dash-card-top {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .dash-card-name {
@@ -465,9 +464,7 @@ body {
 .dash-card-badges {
   display: flex;
   gap: 6px;
-  flex: 0 0 auto;
   flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
 .dash-badge {

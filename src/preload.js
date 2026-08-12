@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('api', {
   verifyServerFolder: (dir) => ipcRenderer.invoke('folder:serverExe', dir),
   checkFiles: (paths) => ipcRenderer.invoke('fs:exists', paths),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+  openPath: (dir) => ipcRenderer.invoke('shell:openPath', dir),
   loadProfiles: () => ipcRenderer.invoke('profiles:load'),
   saveProfiles: (profiles) => ipcRenderer.invoke('profiles:save', profiles),
   loadSettings: () => ipcRenderer.invoke('settings:load'),

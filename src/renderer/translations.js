@@ -116,6 +116,7 @@ const LANGS = {
     models_hint: 'Los modelos descargados de HuggingFace se guardan en la carpeta de modelos.',
     models_search_hf: 'Buscar modelo en HuggingFace',
     models_rescan: 'Re-escaneo de modelos',
+    models_open_folder: 'Abrir carpeta de modelos',
     models_use: 'Usar',
     models_delete: 'Eliminar',
 
@@ -351,6 +352,7 @@ const LANGS = {
     models_hint: 'Models downloaded from HuggingFace are saved in the models folder.',
     models_search_hf: 'Search HuggingFace',
     models_rescan: 'Rescan models',
+    models_open_folder: 'Open models folder',
     models_use: 'Use',
     models_delete: 'Delete',
 

@@ -86,6 +86,36 @@ const FLAGS = {
   pooling: '--pooling',
 };
 
+const SILENT_VALUES = {
+  fit: 'off',
+  gpuLayers: 0,
+  ctxSize: 2048,
+  cacheTypeK: 'f16',
+  cacheTypeV: 'f16',
+  temp: 0.8,
+  topK: 40,
+  minP: 0,
+  presencePenalty: 0,
+  repeatPenalty: 1,
+  parallel: 1,
+  seed: -1,
+  topNSigma: 0,
+  typicalP: 1,
+  xtcProbability: 0,
+  xtcThreshold: 0.1,
+  frequencyPenalty: 0,
+  repeatLastN: 64,
+  dynatempRange: 0,
+  dynatempExp: 1,
+  mirostat: 0,
+  mirostatLr: 0.1,
+  mirostatEnt: 5,
+  adaptiveTarget: 0,
+  adaptiveDecay: 8,
+  flashAttn: 'auto',
+  splitMode: 'layer',
+};
+
 const KV_CACHE_DESCRIPTIONS = {
   f32: 'máxima precisión · +VRAM',
   bf16: 'alta precisión',
@@ -321,6 +351,7 @@ function defaultProfile() {
     modelPath: '',
     mmprojPath: '',
     gpuLayers: 26,
+    gpuLayersAll: false,
     fit: 'off',
     imageMinTokens: 256,
     cacheIdleSlots: true,
@@ -403,7 +434,16 @@ function defaultProfile() {
     cacheReuse: null,
     embedding: false,
     pooling: '',
+    configured: [],
   };
+}
+
+function markConfigured(p) {
+  if (!p || !Array.isArray(p.configured)) return;
+  const keys = Array.from(arguments).slice(1);
+  const set = new Set(p.configured);
+  keys.forEach((k) => set.add(k));
+  p.configured = Array.from(set);
 }
 
 function current() {
@@ -420,6 +460,17 @@ function effectiveInstall(p) {
   return sel || (settings.installations && settings.installations[0]) || null;
 }
 
+function installBuildNum(install) {
+  const s = String((install && (install.path || install.name)) || '');
+  const m = s.match(/vb?(\d{4,})/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function isNewDialect(install) {
+  const n = installBuildNum(install);
+  return n !== null && n >= 10361;
+}
+
 function installLabel(i) {
   if (!i) return '';
   const base = i.path ? i.path.split(/[\\/]/).filter(Boolean).pop() : '';
@@ -431,104 +482,131 @@ function num(v) {
 }
 
 function buildArgs(p) {
+  const legacy = !Array.isArray(p.configured);
+  const cfg = (k) => legacy || p.configured.includes(k);
+  const silent = (k, v) => SILENT_VALUES[k] !== undefined && String(v) === String(SILENT_VALUES[k]);
+  const install = effectiveInstall(p);
+  const newD = isNewDialect(install);
   const args = [];
-  const pushStr = (flag, val) => {
-    if (val !== '' && val !== null && val !== undefined) args.push(flag, String(val));
+  const pushStr = (flag, val, key) => {
+    if (val !== '' && val !== null && val !== undefined && cfg(key) && !silent(key, val)) args.push(flag, String(val));
   };
-  const pushNum = (flag, val) => {
+  const pushNum = (flag, val, key) => {
     const n = num(val);
-    if (n !== null) args.push(flag, String(n));
+    if (n !== null && cfg(key) && !silent(key, n)) args.push(flag, String(n));
+  };
+  const pushOn = (flag, val, key) => {
+    if (val && cfg(key)) args.push(flag);
+  };
+  const pushOff = (flag, val, key) => {
+    if (val === false && cfg(key)) args.push(flag);
   };
 
-  pushStr('--model', p.modelPath);
-  pushStr('--mmproj', p.mmprojPath);
-  pushNum(FLAGS.gpuLayers, p.gpuLayers);
-  pushStr(FLAGS.fit, p.fit);
-  pushNum(FLAGS.imageMinTokens, p.imageMinTokens);
-  if (p.cacheIdleSlots) args.push(FLAGS.cacheIdleSlots);
-  pushStr(FLAGS.reasoning, p.reasoning);
-  pushNum(FLAGS.ctxSize, p.ctxSize);
-  pushStr(FLAGS.cacheTypeK, p.cacheTypeK);
-  pushStr(FLAGS.cacheTypeV, p.cacheTypeV);
-  pushNum(FLAGS.temp, p.temp);
-  pushNum(FLAGS.topP, p.topP);
-  pushNum(FLAGS.topK, p.topK);
-  pushNum(FLAGS.minP, p.minP);
-  pushNum(FLAGS.presencePenalty, p.presencePenalty);
-  pushNum(FLAGS.repeatPenalty, p.repeatPenalty);
-  pushNum(FLAGS.parallel, p.parallel);
-  pushStr(FLAGS.host, p.host);
-  pushNum(FLAGS.port, p.port);
-  pushStr(FLAGS.alias, p.alias);
-  if (p.mtp) {
-    pushStr('--spec-type', 'draft-mtp');
-    pushStr(FLAGS.specDraftModel, p.specDraftModel);
-    pushNum(FLAGS.specDraftNMax, p.specDraftNMax);
-    pushNum(FLAGS.specDraftNMin, p.specDraftNMin);
-    pushNum(FLAGS.specDraftPSplit, p.specDraftPSplit);
+  pushStr('--model', p.modelPath, 'modelPath');
+  pushStr('--mmproj', p.mmprojPath, 'mmprojPath');
+  if (p.gpuLayersAll && newD) {
+    args.push(FLAGS.gpuLayers, 'all');
+  } else {
+    pushNum(FLAGS.gpuLayers, p.gpuLayers, 'gpuLayers');
   }
-  pushStr(FLAGS.flashAttn, p.flashAttn);
-  pushNum(FLAGS.threads, p.threads);
-  pushNum(FLAGS.threadsBatch, p.threadsBatch);
-  pushStr(FLAGS.loadMode, p.loadMode);
-  if (p.kvOffload === false) args.push('--no-kv-offload');
-  if (p.opOffload === false) args.push('--no-op-offload');
-  if (p.cpuMoe) args.push(FLAGS.cpuMoe);
-  if (num(p.nCpuMoe) > 0) pushNum(FLAGS.nCpuMoe, p.nCpuMoe);
-  pushStr(FLAGS.splitMode, p.splitMode);
-  pushNum(FLAGS.mainGpu, p.mainGpu);
-  pushStr(FLAGS.tensorSplit, p.tensorSplit);
-  pushStr(FLAGS.device, p.device);
-  pushStr(FLAGS.ropeScaling, p.ropeScaling);
-  pushNum(FLAGS.ropeScale, p.ropeScale);
-  pushNum(FLAGS.ropeFreqBase, p.ropeFreqBase);
-  pushNum(FLAGS.ropeFreqScale, p.ropeFreqScale);
-  pushNum(FLAGS.yarnOrigCtx, p.yarnOrigCtx);
-  pushNum(FLAGS.yarnExtFactor, p.yarnExtFactor);
-  pushNum(FLAGS.yarnAttnFactor, p.yarnAttnFactor);
-  pushNum(FLAGS.yarnBetaSlow, p.yarnBetaSlow);
-  pushNum(FLAGS.yarnBetaFast, p.yarnBetaFast);
-  pushNum(FLAGS.seed, p.seed);
-  pushStr(FLAGS.samplers, p.samplers);
-  if (p.ignoreEos) args.push(FLAGS.ignoreEos);
-  pushNum(FLAGS.topNSigma, p.topNSigma);
-  pushNum(FLAGS.typicalP, p.typicalP);
-  pushNum(FLAGS.xtcProbability, p.xtcProbability);
-  pushNum(FLAGS.xtcThreshold, p.xtcThreshold);
-  pushNum(FLAGS.frequencyPenalty, p.frequencyPenalty);
-  pushNum(FLAGS.repeatLastN, p.repeatLastN);
-  if (num(p.dryMultiplier) > 0) {
-    pushNum(FLAGS.dryMultiplier, p.dryMultiplier);
-    pushNum(FLAGS.dryBase, p.dryBase);
-    pushNum(FLAGS.dryAllowedLength, p.dryAllowedLength);
-    pushNum(FLAGS.dryPenaltyLastN, p.dryPenaltyLastN);
+  if (newD) {
+    args.push(FLAGS.fit, 'off');
+  } else {
+    pushStr(FLAGS.fit, p.fit, 'fit');
   }
-  pushNum(FLAGS.dynatempRange, p.dynatempRange);
-  pushNum(FLAGS.dynatempExp, p.dynatempExp);
-  pushStr(FLAGS.mirostat, p.mirostat);
-  pushNum(FLAGS.mirostatLr, p.mirostatLr);
-  pushNum(FLAGS.mirostatEnt, p.mirostatEnt);
-  pushNum(FLAGS.adaptiveTarget, p.adaptiveTarget);
-  pushNum(FLAGS.adaptiveDecay, p.adaptiveDecay);
-  pushStr(FLAGS.logitBias, p.logitBias);
-  pushStr(FLAGS.grammar, p.grammar);
-  pushStr(FLAGS.jsonSchema, p.jsonSchema);
-  pushStr(FLAGS.apiKey, p.apiKey);
-  pushStr(FLAGS.reversePrompt, p.reversePrompt);
-  pushNum(FLAGS.timeout, p.timeout);
-  pushNum(FLAGS.threadsHttp, p.threadsHttp);
-  pushStr(FLAGS.apiPrefix, p.apiPrefix);
-  pushStr(FLAGS.corsOrigins, p.corsOrigins);
-  if (p.reusePort) args.push(FLAGS.reusePort);
-  if (p.noHost) args.push(FLAGS.noHost);
-  if (p.metrics) args.push(FLAGS.metrics);
-  if (p.props) args.push(FLAGS.props);
-  if (p.slots === false) args.push('--no-slots');
-  if (p.contBatching === false) args.push('--no-cont-batching');
-  if (p.cachePrompt === false) args.push('--no-cache-prompt');
-  pushNum(FLAGS.cacheReuse, p.cacheReuse);
-  if (p.embedding) args.push(FLAGS.embedding);
-  pushStr(FLAGS.pooling, p.pooling);
+  pushNum(FLAGS.imageMinTokens, p.imageMinTokens, 'imageMinTokens');
+  pushOn(FLAGS.cacheIdleSlots, p.cacheIdleSlots, 'cacheIdleSlots');
+  pushStr(FLAGS.reasoning, p.reasoning, 'reasoning');
+  pushNum(FLAGS.ctxSize, p.ctxSize, 'ctxSize');
+  pushStr(FLAGS.cacheTypeK, p.cacheTypeK, 'cacheTypeK');
+  pushStr(FLAGS.cacheTypeV, p.cacheTypeV, 'cacheTypeV');
+  if (newD && p.mtp && cfg('mtp') && cfg('cacheTypeK')) args.push('--cache-type-k-draft', String(p.cacheTypeK));
+  if (newD && p.mtp && cfg('mtp') && cfg('cacheTypeV')) args.push('--cache-type-v-draft', String(p.cacheTypeV));
+  pushNum(FLAGS.temp, p.temp, 'temp');
+  pushNum(FLAGS.topP, p.topP, 'topP');
+  pushNum(FLAGS.topK, p.topK, 'topK');
+  pushNum(FLAGS.minP, p.minP, 'minP');
+  pushNum(FLAGS.presencePenalty, p.presencePenalty, 'presencePenalty');
+  pushNum(FLAGS.repeatPenalty, p.repeatPenalty, 'repeatPenalty');
+  pushNum(FLAGS.parallel, p.parallel, 'parallel');
+  pushStr(FLAGS.host, p.host, 'host');
+  pushNum(FLAGS.port, p.port, 'port');
+  pushStr(FLAGS.alias, p.alias, 'alias');
+  if (p.mtp && cfg('mtp')) {
+    if (newD) {
+      pushStr('--model-draft', p.specDraftModel, 'specDraftModel');
+      args.push('--spec-type', 'draft-mtp');
+      pushNum('--spec-draft-n-max', p.specDraftNMax, 'specDraftNMax');
+    } else {
+      args.push('--spec-type', 'draft-mtp');
+      pushStr(FLAGS.specDraftModel, p.specDraftModel, 'specDraftModel');
+      pushNum(FLAGS.specDraftNMax, p.specDraftNMax, 'specDraftNMax');
+      pushNum(FLAGS.specDraftNMin, p.specDraftNMin, 'specDraftNMin');
+      pushNum(FLAGS.specDraftPSplit, p.specDraftPSplit, 'specDraftPSplit');
+    }
+  }
+  pushStr(FLAGS.flashAttn, p.flashAttn, 'flashAttn');
+  pushNum(FLAGS.threads, p.threads, 'threads');
+  pushNum(FLAGS.threadsBatch, p.threadsBatch, 'threadsBatch');
+  pushStr(FLAGS.loadMode, p.loadMode, 'loadMode');
+  pushOff('--no-kv-offload', p.kvOffload, 'kvOffload');
+  pushOff('--no-op-offload', p.opOffload, 'opOffload');
+  pushOn(FLAGS.cpuMoe, p.cpuMoe, 'cpuMoe');
+  if (num(p.nCpuMoe) > 0 && cfg('nCpuMoe')) pushNum(FLAGS.nCpuMoe, p.nCpuMoe, 'nCpuMoe');
+  pushStr(FLAGS.splitMode, p.splitMode, 'splitMode');
+  pushNum(FLAGS.mainGpu, p.mainGpu, 'mainGpu');
+  pushStr(FLAGS.tensorSplit, p.tensorSplit, 'tensorSplit');
+  pushStr(FLAGS.device, p.device, 'device');
+  pushStr(FLAGS.ropeScaling, p.ropeScaling, 'ropeScaling');
+  pushNum(FLAGS.ropeScale, p.ropeScale, 'ropeScale');
+  pushNum(FLAGS.ropeFreqBase, p.ropeFreqBase, 'ropeFreqBase');
+  pushNum(FLAGS.ropeFreqScale, p.ropeFreqScale, 'ropeFreqScale');
+  pushNum(FLAGS.yarnOrigCtx, p.yarnOrigCtx, 'yarnOrigCtx');
+  pushNum(FLAGS.yarnExtFactor, p.yarnExtFactor, 'yarnExtFactor');
+  pushNum(FLAGS.yarnAttnFactor, p.yarnAttnFactor, 'yarnAttnFactor');
+  pushNum(FLAGS.yarnBetaSlow, p.yarnBetaSlow, 'yarnBetaSlow');
+  pushNum(FLAGS.yarnBetaFast, p.yarnBetaFast, 'yarnBetaFast');
+  pushNum(FLAGS.seed, p.seed, 'seed');
+  pushStr(FLAGS.samplers, p.samplers, 'samplers');
+  pushOn(FLAGS.ignoreEos, p.ignoreEos, 'ignoreEos');
+  pushNum(FLAGS.topNSigma, p.topNSigma, 'topNSigma');
+  pushNum(FLAGS.typicalP, p.typicalP, 'typicalP');
+  pushNum(FLAGS.xtcProbability, p.xtcProbability, 'xtcProbability');
+  pushNum(FLAGS.xtcThreshold, p.xtcThreshold, 'xtcThreshold');
+  pushNum(FLAGS.frequencyPenalty, p.frequencyPenalty, 'frequencyPenalty');
+  pushNum(FLAGS.repeatLastN, p.repeatLastN, 'repeatLastN');
+  if (num(p.dryMultiplier) > 0 && cfg('dryMultiplier')) {
+    pushNum(FLAGS.dryMultiplier, p.dryMultiplier, 'dryMultiplier');
+    pushNum(FLAGS.dryBase, p.dryBase, 'dryBase');
+    pushNum(FLAGS.dryAllowedLength, p.dryAllowedLength, 'dryAllowedLength');
+    pushNum(FLAGS.dryPenaltyLastN, p.dryPenaltyLastN, 'dryPenaltyLastN');
+  }
+  pushNum(FLAGS.dynatempRange, p.dynatempRange, 'dynatempRange');
+  pushNum(FLAGS.dynatempExp, p.dynatempExp, 'dynatempExp');
+  pushStr(FLAGS.mirostat, p.mirostat, 'mirostat');
+  pushNum(FLAGS.mirostatLr, p.mirostatLr, 'mirostatLr');
+  pushNum(FLAGS.mirostatEnt, p.mirostatEnt, 'mirostatEnt');
+  pushNum(FLAGS.adaptiveTarget, p.adaptiveTarget, 'adaptiveTarget');
+  pushNum(FLAGS.adaptiveDecay, p.adaptiveDecay, 'adaptiveDecay');
+  pushStr(FLAGS.logitBias, p.logitBias, 'logitBias');
+  pushStr(FLAGS.grammar, p.grammar, 'grammar');
+  pushStr(FLAGS.jsonSchema, p.jsonSchema, 'jsonSchema');
+  pushStr(FLAGS.apiKey, p.apiKey, 'apiKey');
+  pushStr(FLAGS.reversePrompt, p.reversePrompt, 'reversePrompt');
+  pushNum(FLAGS.timeout, p.timeout, 'timeout');
+  pushNum(FLAGS.threadsHttp, p.threadsHttp, 'threadsHttp');
+  pushStr(FLAGS.apiPrefix, p.apiPrefix, 'apiPrefix');
+  pushStr(FLAGS.corsOrigins, p.corsOrigins, 'corsOrigins');
+  pushOn(FLAGS.reusePort, p.reusePort, 'reusePort');
+  pushOn(FLAGS.noHost, p.noHost, 'noHost');
+  pushOn(FLAGS.metrics, p.metrics, 'metrics');
+  pushOn(FLAGS.props, p.props, 'props');
+  pushOff('--no-slots', p.slots, 'slots');
+  pushOff('--no-cont-batching', p.contBatching, 'contBatching');
+  pushOff('--no-cache-prompt', p.cachePrompt, 'cachePrompt');
+  pushNum(FLAGS.cacheReuse, p.cacheReuse, 'cacheReuse');
+  pushOn(FLAGS.embedding, p.embedding, 'embedding');
+  pushStr(FLAGS.pooling, p.pooling, 'pooling');
   return args;
 }
 
@@ -560,6 +638,7 @@ const CMD_SPECIAL = {
   '--model': { key: 'modelPath', kind: 'value' },
   '--mmproj': { key: 'mmprojPath', kind: 'value' },
   '--spec-type': { key: 'mtp', kind: 'mtp' },
+  '--model-draft': { key: 'specDraftModel', kind: 'value' },
   '--no-kv-offload': { key: 'kvOffload', kind: 'false' },
   '--no-op-offload': { key: 'opOffload', kind: 'false' },
   '--no-slots': { key: 'slots', kind: 'false' },
@@ -691,6 +770,7 @@ function applyCommandEdit() {
   ['modelPath', 'mmprojPath'].forEach((k) => (p[k] = def[k]));
   Object.keys(FLAGS).forEach((k) => (p[k] = def[k]));
   Object.assign(p, res.values);
+  p.configured = Object.keys(res.values);
   const first = tokenizeCommand(src)[0];
   if (first && first.toLowerCase().endsWith('.exe')) {
     const match = (settings.installations || []).find((inst) => String(inst.exePath || '').toLowerCase() === first.toLowerCase());
@@ -861,18 +941,21 @@ function buildGeneralPanel() {
     const f = await window.api.selectModelFile();
     if (f) {
       const p = current();
+      markConfigured(p, 'modelPath');
       p.modelPath = f;
       syncGeneral();
       refresh();
     }
   });
   $('#clearModelBtn').addEventListener('click', () => {
+    markConfigured(current(), 'modelPath');
     current().modelPath = '';
     syncGeneral();
     refresh();
   });
   $('#modelSelect').addEventListener('change', (e) => {
     if (e.target.value) {
+      markConfigured(current(), 'modelPath');
       current().modelPath = e.target.value;
       syncGeneral();
       refresh();
@@ -881,6 +964,7 @@ function buildGeneralPanel() {
   $('#browseVisionBtn').addEventListener('click', async () => {
     const f = await window.api.selectVisionFile();
     if (f) {
+      markConfigured(current(), 'mmprojPath');
       current().mmprojPath = f;
       syncGeneral();
       refresh();
@@ -888,6 +972,7 @@ function buildGeneralPanel() {
   });
   $('#visionSelect').addEventListener('change', (e) => {
     if (e.target.value) {
+      markConfigured(current(), 'mmprojPath');
       current().mmprojPath = e.target.value;
       syncGeneral();
       refresh();
@@ -897,6 +982,7 @@ function buildGeneralPanel() {
     if (e.target.checked && !current().mmprojPath) {
       window.api.selectVisionFile().then((f) => {
         if (f) {
+          markConfigured(current(), 'mmprojPath');
           current().mmprojPath = f;
         } else {
           e.target.checked = false;
@@ -913,13 +999,17 @@ function buildGeneralPanel() {
 
   const bindText = (sel, key) => {
     $(sel).addEventListener('input', (e) => {
-      current()[key] = e.target.value;
+      const p = current();
+      markConfigured(p, key);
+      p[key] = e.target.value;
       refresh();
     });
   };
   const bindNumber = (sel, key) => {
     $(sel).addEventListener('input', (e) => {
-      current()[key] = e.target.value === '' ? null : Number(e.target.value);
+      const p = current();
+      markConfigured(p, key);
+      p[key] = e.target.value === '' ? null : Number(e.target.value);
       refresh();
     });
   };
@@ -1149,6 +1239,7 @@ function buildControl(field, getValue, onValue) {
         btn.addEventListener('click', () => {
           const prof = current();
           if (!prof) return;
+          markConfigured(prof, field.key, ...field.presetKeys);
           field.presetKeys.forEach((k) => {
             prof[k] = pr.values[k];
           });
@@ -1416,7 +1507,10 @@ function buildSchemaControl(field) {
     () => (current() ? current()[field.key] : null),
     (v) => {
       if (current()) {
-        current()[field.key] = v;
+        const prof = current();
+        markConfigured(prof, field.key);
+        if (field.key === 'mtp' && v === true) markConfigured(prof, 'specDraftNMax', 'specDraftNMin', 'specDraftPSplit');
+        prof[field.key] = v;
         refresh();
         applyFieldVisibility();
         if (mtpDraftKeys.includes(field.key)) renderMtpPresetCard();
@@ -1507,6 +1601,7 @@ function appendKvPresetRow(card) {
     btn.addEventListener('click', () => {
       const prof = current();
       if (!prof) return;
+      markConfigured(prof, 'cacheTypeK', 'cacheTypeV');
       prof.cacheTypeK = preset.values.cacheTypeK;
       prof.cacheTypeV = preset.values.cacheTypeV;
       renderSchemaPanels();
@@ -1541,6 +1636,7 @@ function appendLongCtxPresetRow(card) {
     btn.addEventListener('click', () => {
       const prof = current();
       if (!prof) return;
+      markConfigured(prof, ...LONGCTX_KEYS);
       LONGCTX_KEYS.forEach((k) => {
         prof[k] = preset.values[k];
       });
@@ -2023,10 +2119,13 @@ function useDownloadedModel(dir, files) {
   const vision = files.find((f) => /mmproj|vision-?proj/i.test(f.split(/[\\/]/).pop())) || '';
   const mtpFile = files.find((f) => /mtp|draft/i.test(f.split(/[\\/]/).pop())) || '';
   p.modelPath = main;
+  markConfigured(p, 'modelPath');
   p.mmprojPath = vision;
+  if (vision) markConfigured(p, 'mmprojPath');
   if (mtpFile) {
     p.mtp = true;
     p.specDraftModel = mtpFile;
+    markConfigured(p, 'mtp', 'specDraftModel', 'specDraftNMax', 'specDraftNMin', 'specDraftPSplit');
   } else {
     p.mtp = false;
     p.specDraftModel = '';
@@ -2346,25 +2445,41 @@ function wizardBuildProfile() {
   const p = defaultProfile();
   const preset = VRAM_PRESETS.find((x) => x.id === wizard.vramPreset) || VRAM_PRESETS[1];
   Object.assign(p, preset.values);
+  const cfg = ['modelPath', 'ctxSize', 'host', 'port', 'cacheIdleSlots', 'reasoning', 'imageMinTokens'];
+  Object.keys(preset.values).forEach((k) => cfg.push(k));
   if (preset.values.gpuLayers === 'all') {
+    p.gpuLayersAll = true;
     p.gpuLayers = wizard.modelInfo && wizard.modelInfo.totalLayers ? wizard.modelInfo.totalLayers : 999;
+    cfg.push('gpuLayersAll');
   }
   p.installId = wizard.installId;
   p.modelPath = wizard.modelPath;
   p.mmprojPath = wizard.mmprojPath;
+  if (p.mmprojPath) cfg.push('mmprojPath');
   const ctx = num(wizard.ctxSize);
   p.ctxSize = ctx !== null && ctx >= 64 ? ctx : 4096;
   p.host = wizard.host || '127.0.0.1';
   const port = num(wizard.port);
   p.port = port !== null ? Math.max(0, Math.min(65535, port)) : 8080;
   ['temp', 'topP', 'topK', 'minP', 'presencePenalty', 'repeatPenalty'].forEach((k) => {
-    if (wizard[k] !== null && wizard[k] !== undefined) p[k] = wizard[k];
+    if (wizard[k] !== null && wizard[k] !== undefined) {
+      p[k] = wizard[k];
+      cfg.push(k);
+    }
   });
   p.mtp = wizard.mtp;
-  if (wizard.mtp) p.specDraftModel = wizard.mtpMode === 'file' ? wizard.mtpFile : '';
-  if (wizard.modelInfo && wizard.modelInfo.isMoe) p.nCpuMoe = 0;
+  if (wizard.mtp) {
+    cfg.push('mtp', 'specDraftNMax', 'specDraftNMin', 'specDraftPSplit');
+    p.specDraftModel = wizard.mtpMode === 'file' ? wizard.mtpFile : '';
+    if (wizard.mtpMode === 'file') cfg.push('specDraftModel');
+  }
+  if (wizard.modelInfo && wizard.modelInfo.isMoe) {
+    p.nCpuMoe = 0;
+    cfg.push('nCpuMoe');
+  }
   const base = wizard.modelPath ? wizard.modelPath.split(/[\\/]/).pop().replace(/\.gguf$/i, '') : '';
   p.name = (wizard.name || base || 'Nueva instancia').trim();
+  markConfigured(p, ...cfg);
   return p;
 }
 
@@ -3601,7 +3716,11 @@ async function init() {
   applyTheme(settings.theme || 'noche');
   setLang(settings.lang || 'es');
   applyLanguage();
-  profiles = profiles.map((p) => Object.assign(defaultProfile(), p));
+  profiles = profiles.map((p) => {
+    const merged = Object.assign(defaultProfile(), p);
+    if (!Array.isArray(p.configured)) delete merged.configured;
+    return merged;
+  });
   profiles.forEach((p) => {
     if (num(p.dryMultiplier) <= 0 && p.dryPenaltyLastN === -1) p.dryPenaltyLastN = null;
   });
@@ -3831,6 +3950,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const n = num(raw);
     const val = n !== null ? n : raw;
     const old = btn.dataset.old;
+    markConfigured(p, key);
     p[key] = val;
     scheduleSave();
     renderSchemaPanels();
@@ -4073,6 +4193,16 @@ document.addEventListener('DOMContentLoaded', () => {
     populateModelSelects();
     renderDownloadedModels();
     toast('Modelos re-escaneados (' + modelsCache.length + ')', 'ok');
+  });
+  $('#openModelsDirBtn').addEventListener('click', async () => {
+    const dir = (settings.modelsDir || '').trim();
+    if (!dir) {
+      toast(t('toast_config_models_dir_first'), 'err');
+      openSettings();
+      return;
+    }
+    const res = await window.api.openPath(dir);
+    if (!res || !res.ok) toast((res && res.error) || 'No se pudo abrir la carpeta', 'err');
   });
 
   /* --- Descargador de HuggingFace --- */
