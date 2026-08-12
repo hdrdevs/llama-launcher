@@ -310,8 +310,10 @@ function showDashboard() {
   view = 'dashboard';
   $('#dashboardView').classList.remove('hidden');
   $('#editorView').classList.add('hidden');
+  $('#downloadsView').classList.add('hidden');
   $('#dashTopbar').classList.remove('hidden');
   $('#dashNavBtn').classList.add('active');
+  $('#dlQueueNavBtn').classList.remove('active');
   renderDashboard();
 }
 
@@ -320,8 +322,10 @@ function showEditor() {
   view = 'editor';
   $('#dashboardView').classList.add('hidden');
   $('#editorView').classList.remove('hidden');
+  $('#downloadsView').classList.add('hidden');
   $('#dashTopbar').classList.add('hidden');
   $('#dashNavBtn').classList.remove('active');
+  $('#dlQueueNavBtn').classList.remove('active');
 }
 
 function openCommand(id) {
@@ -3587,20 +3591,15 @@ function hfStartDownload() {
   }
   hf._lastT = null;
   hf._lastB = 0;
-  $('#hfProgressFill').classList.remove('ok');
-  $('#hfProgressFill').style.width = '0%';
-  $('#hfProgressPct').textContent = '0%';
-  $('#hfProgressDetail').textContent = '';
-  $('#hfResult').innerHTML = '';
-  $('#hfProgressTitle').textContent = 'Descargando…';
   hf.running = true;
-  hfSetRunningUI(true);
   hf.lastRepo = hf.repo;
   hf.lastFiles = files;
   hf.lastDir = (settings.modelsDir ? settings.modelsDir.replace(/[\\/]+$/, '') : '') +
     '\\' + hf.repo.split('/').pop().replace(/[\\/:*?"<>|]+/g, '-');
   const safeFolder = hf.repo.split('/').pop().replace(/[\\/:*?"<>|]+/g, '-');
   window.api.startModelDownload({ repo: hf.repo, folder: safeFolder, files }).catch(() => {});
+  closeHf();
+  showDownloads();
 }
 
 function hfHandleProgress(p) {
@@ -3634,26 +3633,6 @@ function hfHandleProgress(p) {
 
 function hfHandleDone(d) {
   hf.running = false;
-  $('#hfProgressTitle').textContent = 'Descargado correctamente';
-  $('#hfProgressDetail').textContent = '';
-  $('#hfProgressFill').style.width = '100%';
-  $('#hfProgressFill').classList.add('ok');
-  $('#hfProgressPct').textContent = '100%';
-  $('#hfResult').innerHTML = '<p class="hint"><span class="text-ok">Modelo guardado en:</span> <b>' + escapeHtml(d.dir || '') + '</b></p>';
-  hfSetRunningUI(false, true);
-}
-
-function hfHandleError(msg) {
-  hf.running = false;
-  $('#hfProgressTitle').textContent = 'No se pudo completar';
-  $('#hfProgressDetail').textContent = '';
-  $('#hfProgressFill').style.width = '0%';
-  $('#hfProgressPct').textContent = '';
-  $('#hfResult').innerHTML = '<p class="hint text-err">' + escapeHtml(msg) + '</p>';
-  hfSetRunningUI(false, false);
-}
-
-async function hfFinish() {
   const lastFiles = (hf.lastFiles || []).map(String);
   hf.lastVisionName = lastFiles.find((f) => /mmproj|vision-?proj|clip|image/i.test(f)) || null;
   hf.lastMtpName = lastFiles.find((f) => /mtp|draft/i.test(f)) || null;
@@ -3663,16 +3642,42 @@ async function hfFinish() {
     lastFiles.forEach((f) => {
       settings.hfRepoMap[hf.lastDir + '\\' + f] = readmeUrl;
     });
-    try { await window.api.saveSettings(settings); } catch (e) {}
+    window.api.saveSettings(settings).catch(() => {});
   }
-  closeHf();
-  modelsCache = await scanAllModels();
-  populateModelSelects();
-  renderDownloadedModels();
-  refresh();
-  scheduleFileCheck();
-  if (wizard.open) wizardPopulate();
+  scanAllModels().then((cache) => {
+    modelsCache = cache;
+    populateModelSelects();
+    renderDownloadedModels();
+    refresh();
+    scheduleFileCheck();
+    if (wizard.open) wizardPopulate();
+  });
+  if (hf.open) {
+    $('#hfProgressTitle').textContent = 'Descargado correctamente';
+    $('#hfProgressDetail').textContent = '';
+    $('#hfProgressFill').style.width = '100%';
+    $('#hfProgressFill').classList.add('ok');
+    $('#hfProgressPct').textContent = '100%';
+    $('#hfResult').innerHTML = '<p class="hint"><span class="text-ok">Modelo guardado en:</span> <b>' + escapeHtml(d.dir || '') + '</b></p>';
+    hfSetRunningUI(false, true);
+  }
   toast(t('toast_model_downloaded'), 'ok');
+}
+
+function hfHandleError(msg) {
+  hf.running = false;
+  if (hf.open) {
+    $('#hfProgressTitle').textContent = 'No se pudo completar';
+    $('#hfProgressDetail').textContent = '';
+    $('#hfProgressFill').style.width = '0%';
+    $('#hfProgressPct').textContent = '';
+    $('#hfResult').innerHTML = '<p class="hint text-err">' + escapeHtml(msg) + '</p>';
+    hfSetRunningUI(false, false);
+  }
+}
+
+function hfFinish() {
+  closeHf();
 }
 
 function openHf() {
@@ -3763,6 +3768,98 @@ async function init() {
     else if (ev.type === 'done') hfHandleDone(ev);
     else if (ev.type === 'cancelled') hfHandleError(ev.message || 'Descarga cancelada.');
     else if (ev.type === 'error') hfHandleError(ev.message || 'Error en la descarga.');
+  });
+
+  /* --- Downloads view (event listeners) --- */
+  window.api.onDlProgress((d) => {
+    dlq.items[d.id] = Object.assign(dlq.items[d.id] || {}, d, { status: d.status || 'active' });
+    dlqUpdateBadge();
+    if (view === 'downloads') dlqRender();
+  });
+  window.api.onDlComplete((d) => {
+    dlq.items[d.id] = Object.assign(dlq.items[d.id] || {}, d, { status: 'completed' });
+    dlqUpdateBadge();
+    if (view === 'downloads') dlqRender();
+  });
+  window.api.onDlError((d) => {
+    dlq.items[d.id] = Object.assign(dlq.items[d.id] || {}, d, { status: 'error' });
+    dlqUpdateBadge();
+    if (view === 'downloads') dlqRender();
+  });
+  window.api.onDlPaused((d) => {
+    dlq.items[d.id] = Object.assign(dlq.items[d.id] || {}, d, { status: 'paused' });
+    dlqUpdateBadge();
+    if (view === 'downloads') dlqRender();
+  });
+  window.api.onDlResumed((d) => {
+    dlq.items[d.id] = Object.assign(dlq.items[d.id] || {}, d, { status: 'active' });
+    dlqUpdateBadge();
+    if (view === 'downloads') dlqRender();
+  });
+  window.api.onDlCancelled((d) => {
+    delete dlq.items[d.id];
+    dlqUpdateBadge();
+    if (view === 'downloads') dlqRender();
+  });
+
+  $('#dlSections').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-dlq]');
+    if (!btn) return;
+    const action = btn.dataset.dlq;
+    const id = btn.dataset.id;
+    if (action === 'pause') window.api.dlPause(id);
+    else if (action === 'resume') window.api.dlResume(id);
+    else if (action === 'cancel') {
+      const d = dlq.items[id];
+      const name = (d && d.meta && d.meta.file) ? d.meta.file.split('/').pop() : id;
+      const ok = await confirmDialog({
+        title: 'Cancelar descarga',
+        message: '¿Cancelar la descarga de "' + name + '"? Se eliminará el archivo parcial.',
+        okLabel: 'Cancelar descarga',
+        danger: true,
+      });
+      if (ok) window.api.dlCancel(id);
+    }
+    else if (action === 'retry') {
+      window.api.dlRetry(id).then((res) => {
+        if (!res || !res.ok) toast((res && res.error) || 'No se pudo reintentar', 'err');
+      });
+    } else if (action === 'open') {
+      const d = dlq.items[id];
+      if (d && d.dest) {
+        const dir = d.dest.replace(/[/\\][^/\\]+$/, '');
+        window.api.openPath(dir);
+      }
+    } else if (action === 'remove') {
+      const d = dlq.items[id];
+      const name = (d && d.meta && d.meta.file) ? d.meta.file.split('/').pop() : id;
+      const ok = await confirmDialog({
+        title: 'Quitar de la lista',
+        message: '¿Quitar "' + name + '" de la lista? El archivo descargado se conserva.',
+        okLabel: 'Quitar',
+      });
+      if (ok) window.api.dlRemove(id);
+    }
+  });
+
+  $('#dlClearDoneBtn').addEventListener('click', () => {
+    window.api.dlClearCompleted().then((n) => {
+      if (n > 0) toast(n + ' descarga(s) limpiada(s)', 'ok');
+      dlqRender();
+    });
+  });
+  $('#dlNewBtn').addEventListener('click', openHf);
+  $('#dlQueueNavBtn').addEventListener('click', showDownloads);
+
+  window.api.onConfirmClose(async (d) => {
+    const ok = await confirmDialog({
+      title: 'Descargas en curso',
+      message: 'Hay ' + (d.count || '') + ' descarga(s) activa(s). Si cerrás, se pausarán y podrás reanudarlas después. ¿Cerrar la aplicación?',
+      okLabel: 'Cerrar y pausar',
+      cancelLabel: 'Seguir descargando',
+      danger: true,
+    });
+    window.api.sendCloseResponse(ok);
   });
 
   window.api.onStats(onStats);
@@ -3872,6 +3969,125 @@ function drawSeriesLine(ctx, series, w, h) {
     }
   }
   ctx.stroke();
+}
+
+/* ---------------- Downloads view ---------------- */
+
+const dlq = { items: {} };
+
+function showDownloads() {
+  view = 'downloads';
+  $('#dashboardView').classList.add('hidden');
+  $('#editorView').classList.add('hidden');
+  $('#downloadsView').classList.remove('hidden');
+  $('#dashTopbar').classList.add('hidden');
+  $('#dashNavBtn').classList.remove('active');
+  $('#dlQueueNavBtn').classList.add('active');
+  window.api.dlListAll().then((items) => {
+    dlq.items = {};
+    for (const d of items) dlq.items[d.id] = d;
+    dlqRender();
+  });
+  dlqRender();
+}
+
+function dlqUpdateBadge() {
+  const active = Object.values(dlq.items).filter((d) => d.status === 'active' || d.status === 'paused' || d.status === 'pending');
+  $('#dlQueueNavBtn').textContent = active.length > 0 ? 'Descargas (' + active.length + ')' : 'Descargas';
+}
+
+function dlqFmtBytes(b) {
+  if (!b || b <= 0) return '0 B';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+  return (b / 1073741824).toFixed(1) + ' GB';
+}
+
+function dlqFmtSpeed(bps) {
+  if (!bps || bps <= 0) return '';
+  return ' · ' + dlqFmtBytes(bps) + '/s';
+}
+
+function dlqRender() {
+  const items = Object.values(dlq.items);
+  const active = items.filter((d) => d.status === 'active' || d.status === 'pending');
+  const paused = items.filter((d) => d.status === 'paused');
+  const errors = items.filter((d) => d.status === 'error');
+  const done = items.filter((d) => d.status === 'completed');
+
+  const hasAny = items.length > 0;
+  $('#dlEmptyState').classList.toggle('hidden', hasAny);
+  $('#dlActiveSection').classList.toggle('hidden', active.length === 0);
+  $('#dlPausedSection').classList.toggle('hidden', paused.length === 0);
+  $('#dlErrorSection').classList.toggle('hidden', errors.length === 0);
+  $('#dlDoneSection').classList.toggle('hidden', done.length === 0);
+
+  $('#dlActiveCount').textContent = active.length;
+  $('#dlPausedCount').textContent = paused.length;
+  $('#dlErrorCount').textContent = errors.length;
+  $('#dlDoneCount').textContent = done.length;
+
+  $('#dlActiveList').innerHTML = active.map(dlqRenderItem).join('');
+  $('#dlPausedList').innerHTML = paused.map(dlqRenderItem).join('');
+  $('#dlErrorList').innerHTML = errors.map(dlqRenderItem).join('');
+  $('#dlDoneList').innerHTML = done.map(dlqRenderItem).join('');
+}
+
+function dlqRenderItem(d) {
+  const pct = d.totalBytes ? Math.min(100, (d.receivedBytes / d.totalBytes) * 100) : 0;
+  const name = (d.meta && d.meta.file) ? d.meta.file.split('/').pop() : (d.dest || d.url || '').split(/[/\\]/).pop() || d.id;
+  const statusClass = d.status || 'active';
+  const statusLabel = { active: 'Descargando', paused: 'Pausado', error: 'Error', completed: 'Completado', pending: 'En cola' }[statusClass] || statusClass;
+  const idAttr = ' data-id="' + escapeHtml(d.id) + '"';
+
+  let actions = '';
+  if (d.status === 'active') {
+    actions = '<button class="dlq-action-btn" data-dlq="pause" title="Pausar"' + idAttr + '>⏸</button>';
+    actions += '<button class="dlq-action-btn danger" data-dlq="cancel" title="Cancelar"' + idAttr + '>✕</button>';
+  } else if (d.status === 'pending') {
+    actions = '<button class="dlq-action-btn danger" data-dlq="cancel" title="Cancelar"' + idAttr + '>✕</button>';
+  } else if (d.status === 'paused') {
+    actions = '<button class="dlq-action-btn" data-dlq="resume" title="Reanudar"' + idAttr + '>▶</button>';
+    actions += '<button class="dlq-action-btn danger" data-dlq="cancel" title="Cancelar"' + idAttr + '>✕</button>';
+  } else if (d.status === 'error') {
+    actions = '<button class="dlq-action-btn" data-dlq="retry" title="Reintentar"' + idAttr + '>↻</button>';
+    actions += '<button class="dlq-action-btn danger" data-dlq="cancel" title="Eliminar"' + idAttr + '>✕</button>';
+  } else if (d.status === 'completed') {
+    actions = '<button class="dlq-action-btn" data-dlq="open" title="Abrir carpeta"' + idAttr + '>📂</button>';
+    actions += '<button class="dlq-action-btn danger" data-dlq="remove" title="Quitar de la lista"' + idAttr + '>✕</button>';
+  }
+
+  const iconMap = { active: '⬇', paused: '⏸', error: '⚠', completed: '✓', pending: '⏳' };
+  const icon = iconMap[statusClass] || '⬇';
+
+  let meta = '';
+  if (d.status === 'completed') {
+    meta = dlqFmtBytes(d.totalBytes || d.receivedBytes);
+  } else if (d.status === 'pending') {
+    meta = d.meta && d.meta.count > 1 ? 'Archivo ' + ((d.meta.index || 0) + 1) + ' de ' + d.meta.count : 'En espera';
+  } else {
+    meta = dlqFmtBytes(d.receivedBytes || 0) + ' / ' + dlqFmtBytes(d.totalBytes || 0);
+    if (d.status === 'active' && d.speed) meta += dlqFmtSpeed(d.speed);
+  }
+
+  const errorHtml = d.error ? '<div class="dl-item-error">' + escapeHtml(d.error) + '</div>' : '';
+
+  return '<div class="dl-item">' +
+    '<div class="dl-item-icon ' + statusClass + '">' + icon + '</div>' +
+    '<div class="dl-item-body">' +
+      '<div class="dl-item-top">' +
+        '<span class="dl-item-name" title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>' +
+        '<span class="dl-item-status ' + statusClass + '">' + statusLabel + '</span>' +
+      '</div>' +
+      '<div class="dl-item-progress"><div class="dl-item-progress-fill ' + statusClass + '" style="width:' + pct + '%"></div></div>' +
+      '<div class="dl-item-meta">' +
+        '<span>' + meta + '</span>' +
+        '<div class="dl-item-actions">' + actions + '</div>' +
+      '</div>' +
+      errorHtml +
+    '</div>' +
+  '</div>';
 }
 
 /* ---------------- Events ---------------- */
@@ -4208,7 +4424,9 @@ document.addEventListener('DOMContentLoaded', () => {
   /* --- Descargador de HuggingFace --- */
   const hfTryClose = () => {
     if (hf.running) {
-        toast(t('toast_dl_cancel'), 'err');
+      closeHf();
+      showDownloads();
+      toast('La descarga continúa en el gestor', 'ok');
       return;
     }
     closeHf();
@@ -4218,7 +4436,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target === $('#hfModal')) hfTryClose();
   });
   $('#hfOpenBtn').addEventListener('click', openHf);
-  $('#wizHfBtn').addEventListener('click', openHf);
+  $('#wizHfBtn').addEventListener('click', () => {
+    closeWizard();
+    openHf();
+  });
   $('#hfSearchBtn').addEventListener('click', hfSearch);
   $('#hfQuery').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') hfSearch();

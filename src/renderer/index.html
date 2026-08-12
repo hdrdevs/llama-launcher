@@ -29,6 +29,7 @@
     <nav class="side-nav">
       <button id="dashNavBtn" class="side-nav-btn active" data-i18n="nav_dashboard">Dashboard</button>
       <button id="newBtn" class="side-nav-btn" data-i18n="nav_new">+ Nueva instancia</button>
+      <button id="dlQueueNavBtn" class="side-nav-btn" data-i18n="nav_downloads">Descargas</button>
     </nav>
     <div class="list-label" data-i18n="list_label">Mis instancias</div>
     <div id="profileList" class="profile-list"></div>
@@ -65,6 +66,61 @@
         <button id="dashEmptyNewBtn" class="btn btn-accent" data-i18n="empty_btn">+ Nueva instancia</button>
       </div>
     </section>
+
+    <div id="downloadsView" class="downloads-view hidden">
+      <header class="topbar">
+        <div class="dash-title">
+          <h1 data-i18n="dl_title">Descargas</h1>
+          <span class="dash-subtitle" data-i18n="dl_subtitle">Gestor de descargas de modelos</span>
+        </div>
+        <div class="top-actions">
+          <button id="dlClearDoneBtn" class="btn small ghost" data-i18n="dl_clear_done">Limpiar completadas</button>
+          <button id="dlNewBtn" class="btn btn-accent" data-i18n="dl_new">+ Nueva descarga</button>
+        </div>
+      </header>
+
+      <div id="dlSections" class="dl-sections">
+        <div id="dlEmptyState" class="dl-empty-state">
+          <div class="dl-empty-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </div>
+          <h2 data-i18n="dl_empty_title">Sin descargas</h2>
+          <p data-i18n="dl_empty_desc">Buscá un modelo de HuggingFace para empezar a descargar.</p>
+        </div>
+
+        <div id="dlActiveSection" class="dl-section hidden">
+          <div class="dl-section-head">
+            <span class="dl-section-title" data-i18n="dl_active">Descargas activas</span>
+            <span id="dlActiveCount" class="dl-section-count">0</span>
+          </div>
+          <div id="dlActiveList" class="dl-list"></div>
+        </div>
+
+        <div id="dlPausedSection" class="dl-section hidden">
+          <div class="dl-section-head">
+            <span class="dl-section-title" data-i18n="dl_paused">Pausadas</span>
+            <span id="dlPausedCount" class="dl-section-count">0</span>
+          </div>
+          <div id="dlPausedList" class="dl-list"></div>
+        </div>
+
+        <div id="dlErrorSection" class="dl-section hidden">
+          <div class="dl-section-head">
+            <span class="dl-section-title" data-i18n="dl_failed">Con errores</span>
+            <span id="dlErrorCount" class="dl-section-count">0</span>
+          </div>
+          <div id="dlErrorList" class="dl-list"></div>
+        </div>
+
+        <div id="dlDoneSection" class="dl-section hidden">
+          <div class="dl-section-head">
+            <span class="dl-section-title" data-i18n="dl_completed">Completadas</span>
+            <span id="dlDoneCount" class="dl-section-count">0</span>
+          </div>
+          <div id="dlDoneList" class="dl-list"></div>
+        </div>
+      </div>
+    </div>
 
     <div id="editorView" class="editor-view hidden">
       <header class="topbar">

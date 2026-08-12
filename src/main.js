@@ -5,10 +5,13 @@ const os = require('os');
 const path = require('path');
 const https = require('https');
 const zlib = require('zlib');
+const { DownloadManager } = require('./download-manager');
 
 let mainWindow = null;
 let serverProc = null;
 let serverErrBuf = '';
+let closeConfirmed = false;
+let closePending = false;
 
 /* ---------------- System stats monitor ---------------- */
 
@@ -291,6 +294,71 @@ const profilesFile = path.join(dataDir, 'profiles.json');
 const settingsFile = path.join(dataDir, 'settings.json');
 
 let state = { profiles: [], settings: {} };
+let dlMgr = null;
+
+function initDownloadManager() {
+  dlMgr = new DownloadManager({
+    dataDir,
+    onProgress: (record, speed) => {
+      send('dl:progress', {
+        id: record.id,
+        url: record.url,
+        dest: record.dest,
+        totalBytes: record.totalBytes,
+        receivedBytes: record.receivedBytes,
+        status: record.status,
+        speed,
+        meta: record.meta,
+      });
+    },
+    onComplete: (record) => {
+      send('dl:complete', {
+        id: record.id,
+        url: record.url,
+        dest: record.dest,
+        totalBytes: record.totalBytes,
+        meta: record.meta,
+      });
+      dlNotifyDone(record);
+    },
+    onError: (record) => {
+      send('dl:error', {
+        id: record.id,
+        url: record.url,
+        dest: record.dest,
+        error: record.error,
+        meta: record.meta,
+      });
+      dlNotifyDone(record);
+    },
+    onPause: (record) => {
+      send('dl:paused', {
+        id: record.id,
+        url: record.url,
+        dest: record.dest,
+        receivedBytes: record.receivedBytes,
+        totalBytes: record.totalBytes,
+        meta: record.meta,
+      });
+    },
+    onResume: (record) => {
+      send('dl:resumed', {
+        id: record.id,
+        url: record.url,
+        dest: record.dest,
+        meta: record.meta,
+      });
+    },
+    onCancelled: (record) => {
+      send('dl:cancelled', {
+        id: record.id,
+        url: record.url,
+        meta: record.meta,
+      });
+      dlNotifyDone(record);
+    },
+  });
+}
 
 function ensureStore() {
   try {
@@ -1315,6 +1383,23 @@ function hfFileUrl(repo, file) {
   return 'https://huggingface.co/' + encodeHfPath(repo) + '/resolve/main/' + encodeHfPath(file) + '?download=true';
 }
 
+const dlWaiters = new Map();
+
+function dlWaitFor(dlId) {
+  return new Promise((resolve) => {
+    dlWaiters.set(dlId, resolve);
+  });
+}
+
+function dlNotifyDone(record) {
+  const resolve = dlWaiters.get(record.id);
+  if (!resolve) return;
+  dlWaiters.delete(record.id);
+  if (record.status === 'completed') resolve({ ok: true });
+  else if (record.status === 'error') resolve({ ok: false, error: record.error });
+  else resolve({ ok: false, error: record.status });
+}
+
 async function runModelDownload(opts) {
   const { repo, folder, files } = opts || {};
   const fail = (msg) => {
@@ -1329,34 +1414,55 @@ async function runModelDownload(opts) {
     .replace(/[\\/:*?"<>|]+/g, '-')
     .trim();
   const destDir = path.join(modelsDir, safeFolder);
-  mdlState = { active: true, cancelled: false };
+  mdlState = { active: true, cancelled: false, dlIds: [] };
   try {
     fs.mkdirSync(destDir, { recursive: true });
     const names = files.map((f) => (typeof f === 'string' ? f : f.name));
+    const dlIds = [];
     for (let i = 0; i < names.length; i++) {
       const name = names[i];
-      if (mdlState.cancelled) throw new Error('Cancelled');
       const dest = path.join(destDir, String(name).replace(/[\\/]/g, path.sep));
       fs.mkdirSync(path.dirname(dest), { recursive: true });
-      sendModelEvent('progress', { phase: 'prepare', label: 'Descargando ' + name, file: name, index: i, count: names.length });
-      await downloadFile(
-        hfFileUrl(repo, name),
+      const dlId = 'hf-' + repo.replace(/[/:]/g, '-') + '-' + name.replace(/[\\/]/g, '-');
+      dlIds.push(dlId);
+      dlMgr.register({
+        id: dlId,
+        url: hfFileUrl(repo, name),
         dest,
-        (p) => {
+        meta: { repo, file: name, index: i, count: names.length, folder: safeFolder },
+      });
+    }
+    mdlState.dlIds = dlIds;
+
+    const promises = names.map((name, i) => {
+      const dlId = dlIds[i];
+      sendModelEvent('progress', { phase: 'prepare', label: 'Descargando ' + name, file: name, index: i, count: names.length });
+      const waiter = dlWaitFor(dlId);
+      const result = dlMgr.start({
+        id: dlId,
+        onProgress: (record, speed) => {
           sendModelEvent('progress', {
             phase: 'download',
             label: 'Descargando ' + name,
             file: name,
             index: i,
             count: names.length,
-            received: p.received,
-            total: p.total,
+            received: record.receivedBytes,
+            total: record.totalBytes,
+            speed,
+            dlId: record.id,
           });
         },
-        mdlState
-      );
-      if (mdlState.cancelled) throw new Error('Cancelled');
-    }
+      });
+      if (!result.ok) return { ok: false, error: result.error };
+      return waiter;
+    });
+
+    const results = await Promise.all(promises);
+    if (mdlState.cancelled) throw new Error('Cancelled');
+    const failed = results.find((r) => !r.ok);
+    if (failed) throw new Error(failed.error || 'Download failed');
+
     sendModelEvent('done', { folder: safeFolder, dir: destDir, repo });
     return { ok: true, dir: destDir };
   } catch (e) {
@@ -1908,6 +2014,18 @@ function createWindow() {
     });
     mainWindow.webContents.once('did-finish-load', () => runSmoke(mainWindow));
   }
+
+  mainWindow.on('close', (e) => {
+    if (closeConfirmed) return;
+    if (!dlMgr) return;
+    const active = dlMgr.list().filter((d) => d.status === 'active' || d.status === 'pending');
+    if (active.length === 0) return;
+    if (closePending) { e.preventDefault(); return; }
+    e.preventDefault();
+    closePending = true;
+    send('app:confirmClose', { count: active.length });
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -2129,7 +2247,17 @@ function registerIpc() {
   ipcMain.handle('hf:start', (_e, opts) => runModelDownload(opts));
 
   ipcMain.handle('hf:cancel', () => {
-    if (mdlState && mdlState.active) mdlState.cancelled = true;
+    if (mdlState && mdlState.active) {
+      mdlState.cancelled = true;
+      if (mdlState.dlIds) {
+        for (const id of mdlState.dlIds) {
+          const rec = dlMgr.get(id);
+          if (rec && rec.status !== 'completed') {
+            dlMgr.cancel(id);
+          }
+        }
+      }
+    }
     return true;
   });
 
@@ -2141,6 +2269,67 @@ function registerIpc() {
     }
   });
 
+
+  ipcMain.handle('dl:start', (_e, opts) => {
+    if (!dlMgr) return { ok: false, error: 'Download manager not initialized.' };
+    return dlMgr.start(opts);
+  });
+
+  ipcMain.handle('dl:pause', (_e, id) => {
+    if (!dlMgr) return { ok: false, error: 'Download manager not initialized.' };
+    return dlMgr.pause(id);
+  });
+
+  ipcMain.handle('dl:resume', (_e, id) => {
+    if (!dlMgr) return { ok: false, error: 'Download manager not initialized.' };
+    return dlMgr.resume(id);
+  });
+
+  ipcMain.handle('dl:cancel', (_e, id) => {
+    if (!dlMgr) return { ok: false, error: 'Download manager not initialized.' };
+    return dlMgr.cancel(id);
+  });
+
+  ipcMain.handle('dl:remove', (_e, id) => {
+    if (!dlMgr) return { ok: false, error: 'Download manager not initialized.' };
+    return dlMgr.remove(id);
+  });
+
+  ipcMain.handle('dl:retry', (_e, id) => {
+    if (!dlMgr) return { ok: false, error: 'Download manager not initialized.' };
+    console.log('[DL] retry called, id=' + id + ', state has id=' + (dlMgr.get(id) ? 'yes status=' + dlMgr.get(id).status : 'NO'));
+    return dlMgr.retry(id);
+  });
+
+  ipcMain.handle('dl:list', () => {
+    if (!dlMgr) return [];
+    return dlMgr.list();
+  });
+
+  ipcMain.handle('dl:listAll', () => {
+    if (!dlMgr) return [];
+    return dlMgr.listAll();
+  });
+
+  ipcMain.handle('dl:clearCompleted', () => {
+    if (!dlMgr) return 0;
+    return dlMgr.clearCompleted();
+  });
+
+  ipcMain.on('app:closeResponse', (_e, confirmed) => {
+    closePending = false;
+    if (!confirmed) return;
+    closeConfirmed = true;
+    if (dlMgr) {
+      const items = dlMgr.list();
+      for (const d of items) {
+        if (d.status === 'active' || d.status === 'pending') {
+          dlMgr.pause(d.id);
+        }
+      }
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+  });
 
   ipcMain.on('window:minimize', () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
@@ -2157,6 +2346,7 @@ function registerIpc() {
 
 app.whenReady().then(() => {
   ensureStore();
+  initDownloadManager();
   registerIpc();
   createWindow();
   startStatsMonitor();
@@ -2170,6 +2360,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('quit', () => {
+  if (dlMgr) {
+    try { dlMgr.shutdown(); } catch (e) {}
+  }
   if (serverProc) {
     try {
       exec(`taskkill /PID ${serverProc.pid} /T /F`, { windowsHide: true }, () => {});
