@@ -27,13 +27,14 @@
 
   <aside class="sidebar">
     <nav class="side-nav">
-      <button id="dashNavBtn" class="side-nav-btn active" data-i18n="nav_dashboard">Dashboard</button>
-      <button id="newBtn" class="side-nav-btn" data-i18n="nav_new">+ Nueva instancia</button>
-      <button id="dlQueueNavBtn" class="side-nav-btn" data-i18n="nav_downloads">Descargas</button>
+      <button id="dashNavBtn" class="side-nav-btn active" data-side-icon="⌂" data-i18n="nav_dashboard">Dashboard</button>
+      <button id="newBtn" class="side-nav-btn" data-side-icon="+" data-i18n="nav_new">+ Nueva instancia</button>
+      <button id="dlQueueNavBtn" class="side-nav-btn" data-side-icon="↓" data-i18n="nav_downloads">Descargas</button>
     </nav>
     <div class="list-label" data-i18n="list_label">Mis instancias</div>
     <div id="profileList" class="profile-list"></div>
   </aside>
+  <div id="sidebarResizeHandle" class="sidebar-resize-handle" title="Redimensionar panel lateral"></div>
 
   <main class="main">
     <header id="dashTopbar" class="topbar">
@@ -618,6 +619,7 @@
   </div>
 
   <footer id="statsBar" class="stats-bar">
+    <div id="bottomResizeHandle" class="bottom-resize-handle" title="Redimensionar panel inferior"></div>
     <div class="stats-head">
       <nav class="bottom-tabs">
         <button id="bottomTabRecursos" class="tab active" data-bottom="recursos" data-i18n="dock_resources">Recursos</button>

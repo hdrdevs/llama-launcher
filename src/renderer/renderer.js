@@ -303,6 +303,7 @@ let running = false;
 let runningProfileId = null;
 let view = 'dashboard';
 let saveTimer = null;
+let layoutSaveTimer = null;
 let dashSelMode = false;
 let dashSelected = new Set();
 let boardConfig = null;
@@ -1313,9 +1314,10 @@ function renderSidebar() {
     const item = document.createElement('button');
     item.className = 'profile-item' + (p.id === currentId ? ' active' : '');
     const model = p.modelPath ? p.modelPath.split(/[\\/]/).pop() : t('card_no_model');
+    item.title = (p.name || t('card_no_name')) + ' · ' + model;
     item.innerHTML = `
       <span class="item-dot"></span>
-      <span style="flex:1;min-width:0">
+      <span class="item-text" style="flex:1;min-width:0">
         <div class="item-name">${escapeHtml(p.name || t('card_no_name'))}</div>
         <div class="item-model">${escapeHtml(model)}</div>
       </span>
@@ -1399,6 +1401,7 @@ function renderDashboard() {
     card.className = 'dash-card' + (dashSelMode ? ' selecting' : '') + (selected ? ' selected' : '') + (problems.length ? ' problem' : '');
     card.innerHTML = `
       ${dashSelMode ? '<label class="dash-check"><input type="checkbox"' + (selected ? ' checked' : '') + ' /></label>' : ''}
+      <div class="dash-model-mark">${escapeHtml(modelBadge(p.modelPath || p.name))}</div>
       <div class="dash-card-top">
         <div class="dash-card-name">${escapeHtml(p.name || t('card_no_name'))}</div>
         <div class="dash-card-badges">
@@ -1932,6 +1935,18 @@ function modelLabel(p) {
     if (rel !== p) return rel;
   }
   return p;
+}
+
+function modelBadge(modelPath) {
+  const name = String(modelPath || '').split(/[\\/]/).pop().toLowerCase();
+  const known = [
+    ['codellama', 'CL'], ['deepseek', 'Ds'], ['starcoder', 'Sc'], ['openchat', 'Oc'],
+    ['mixtral', 'Mx'], ['mistral', 'Mi'], ['gemma', 'Ge'], ['llama', 'La'],
+    ['qwen', 'Qw'], ['phi', 'Φ'], ['falcon', 'Fa'], ['vicuna', 'Vi'], ['nous', 'No'],
+    ['solar', 'So'], ['yi', 'Yi'],
+  ];
+  const hit = known.find(([key]) => name.includes(key));
+  return hit ? hit[1] : 'AI';
 }
 
 function populateModelSelects() {
@@ -2639,6 +2654,76 @@ function showBottomTab(name) {
 
 function expandBottomDock() {
   $('#statsBar').classList.remove('collapsed');
+  document.body.classList.remove('bottom-collapsed');
+  settings.bottomCollapsed = false;
+  scheduleLayoutSave();
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function scheduleLayoutSave() {
+  clearTimeout(layoutSaveTimer);
+  layoutSaveTimer = setTimeout(async () => {
+    try { await window.api.saveSettings(settings); } catch (e) {}
+  }, 250);
+}
+
+function applyLayoutSettings() {
+  const sideW = clamp(Number(settings.sidebarWidth) || 264, 58, 460);
+  const bottomH = clamp(Number(settings.bottomHeight) || 170, 90, 420);
+  document.documentElement.style.setProperty('--sidebar-width', sideW + 'px');
+  document.documentElement.style.setProperty('--bottom-height', bottomH + 'px');
+  const rail = sideW <= 72;
+  document.body.classList.toggle('sidebar-collapsed', rail);
+  document.body.classList.toggle('bottom-collapsed', !!settings.bottomCollapsed);
+  $('#statsBar').classList.toggle('collapsed', !!settings.bottomCollapsed);
+}
+
+function toggleBottomDock() {
+  settings.bottomCollapsed = !settings.bottomCollapsed;
+  applyLayoutSettings();
+  scheduleLayoutSave();
+}
+
+function initResizableLayout() {
+  const sideHandle = $('#sidebarResizeHandle');
+  const bottomHandle = $('#bottomResizeHandle');
+  sideHandle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    document.body.classList.add('resizing-sidebar');
+    const onMove = (ev) => {
+      settings.sidebarWidth = clamp(ev.clientX, 58, 460);
+      document.documentElement.style.setProperty('--sidebar-width', settings.sidebarWidth + 'px');
+      document.body.classList.toggle('sidebar-collapsed', settings.sidebarWidth <= 72);
+    };
+    const onUp = () => {
+      document.body.classList.remove('resizing-sidebar');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      scheduleLayoutSave();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+  bottomHandle.addEventListener('mousedown', (e) => {
+    if (settings.bottomCollapsed) return;
+    e.preventDefault();
+    document.body.classList.add('resizing-bottom');
+    const onMove = (ev) => {
+      settings.bottomHeight = clamp(window.innerHeight - ev.clientY, 90, 420);
+      document.documentElement.style.setProperty('--bottom-height', settings.bottomHeight + 'px');
+    };
+    const onUp = () => {
+      document.body.classList.remove('resizing-bottom');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      scheduleLayoutSave();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
 }
 
 /* ---------------- Detección de argumentos inválidos ---------------- */
@@ -4070,6 +4155,7 @@ async function init() {
   applyTheme(settings.theme || 'noche');
   setLang(settings.lang || 'es');
   applyLanguage();
+  applyLayoutSettings();
   profiles = profiles.map((p) => {
     const merged = Object.assign(defaultProfile(), p);
     if (!Array.isArray(p.configured)) delete merged.configured;
@@ -4617,8 +4703,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   $('#bottomCollapseBtn').addEventListener('click', () => {
-    $('#statsBar').classList.toggle('collapsed');
+    toggleBottomDock();
   });
+  initResizableLayout();
   $('#bottomTabRecursos').addEventListener('click', () => showBottomTab('recursos'));
   $('#bottomTabConsola').addEventListener('click', () => showBottomTab('consola'));
 
