@@ -477,6 +477,44 @@ function scanDir(dir, depth, out) {
   return out;
 }
 
+function modelInfo(file) {
+  let stat = null;
+  try { stat = fs.statSync(file); } catch (e) {}
+  const root = path.resolve(state.settings.modelsDir || '');
+  const resolved = path.resolve(file);
+  let folder = path.dirname(resolved);
+  if (root && folder.toLowerCase().startsWith((root + path.sep).toLowerCase())) {
+    const rel = path.relative(root, folder).split(path.sep)[0];
+    if (rel) folder = path.join(root, rel);
+  }
+  return {
+    id: 'local-' + Buffer.from(resolved).toString('base64url'),
+    status: 'completed',
+    dest: resolved,
+    totalBytes: stat ? stat.size : 0,
+    receivedBytes: stat ? stat.size : 0,
+    updatedAt: stat ? stat.mtimeMs : 0,
+    meta: { file: path.basename(resolved), folder },
+    local: true,
+  };
+}
+
+function listModelDownloads() {
+  const items = dlMgr ? dlMgr.listAll() : [];
+  const byDest = new Map();
+  for (const item of items) {
+    if (item && item.dest) byDest.set(path.resolve(item.dest).toLowerCase(), item);
+  }
+  const modelsDir = state.settings.modelsDir;
+  if (modelsDir) {
+    for (const file of scanDir(modelsDir, 0, [])) {
+      const key = path.resolve(file).toLowerCase();
+      if (!byDest.has(key)) items.push(modelInfo(file));
+    }
+  }
+  return items;
+}
+
 /* ---------------- llama.cpp release downloader ---------------- */
 
 let releasesCache = null;
@@ -954,6 +992,26 @@ function deleteModelsFolder(dir) {
     throw new Error('Detené el servidor antes de eliminar modelos.');
   }
   fs.rmSync(target, { recursive: true, force: true });
+  return 'deleted';
+}
+
+function deleteModelFile(filePath) {
+  const target = path.resolve(filePath || '');
+  if (!target || path.parse(target).root === target) {
+    throw new Error('No se puede eliminar una unidad de disco completa.');
+  }
+  if (!fs.existsSync(target)) return 'missing';
+  const stat = fs.statSync(target);
+  if (!stat.isFile()) throw new Error('La ruta no es un archivo.');
+  if (!target.toLowerCase().endsWith('.gguf')) throw new Error('Solo se pueden eliminar modelos .gguf.');
+  const root = state.settings.modelsDir ? path.resolve(state.settings.modelsDir) : '';
+  if (!root || !(target + path.sep).toLowerCase().startsWith((root + path.sep).toLowerCase())) {
+    throw new Error('El modelo no está dentro de la carpeta de modelos.');
+  }
+  if (serverProc) {
+    throw new Error('Detené el servidor antes de eliminar modelos.');
+  }
+  fs.rmSync(target, { force: true });
   return 'deleted';
 }
 
@@ -2310,7 +2368,7 @@ function registerIpc() {
 
   ipcMain.handle('dl:remove', (_e, id) => {
     if (!dlMgr) return { ok: false, error: 'Download manager not initialized.' };
-    return dlMgr.remove(id);
+    return dlMgr.remove(id, { deleteFile: true });
   });
 
   ipcMain.handle('dl:retry', (_e, id) => {
@@ -2325,8 +2383,16 @@ function registerIpc() {
   });
 
   ipcMain.handle('dl:listAll', () => {
-    if (!dlMgr) return [];
-    return dlMgr.listAll();
+    return listModelDownloads();
+  });
+
+  ipcMain.handle('dl:deleteLocal', (_e, filePath) => {
+    try {
+      deleteModelFile(filePath);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e && e.message) || 'No se pudo eliminar el modelo.' };
+    }
   });
 
   ipcMain.handle('dl:clearCompleted', () => {

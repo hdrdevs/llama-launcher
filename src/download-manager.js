@@ -396,10 +396,13 @@ class DownloadManager {
     return { ok: true };
   }
 
-  remove(id) {
+  remove(id, opts) {
     const record = this._state[id];
     if (!record) return { ok: false, error: 'Download not found.' };
     if (record.status === 'active') return { ok: false, error: 'Cannot remove an active download.' };
+    if (opts && opts.deleteFile && record.dest) {
+      try { fs.rmSync(record.dest, { force: true }); } catch (e) {}
+    }
     delete this._state[id];
     this._persist();
     this.onCancelled(record);

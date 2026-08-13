@@ -311,6 +311,7 @@ const boardMoeCache = new Map();
 
 function showDashboard() {
   view = 'dashboard';
+  document.body.classList.remove('models-view-active');
   $('#dashboardView').classList.remove('hidden');
   $('#boardView').classList.add('hidden');
   $('#editorView').classList.add('hidden');
@@ -324,6 +325,7 @@ function showDashboard() {
 function showEditor() {
   if (dashSelMode) exitDashSelection();
   view = 'editor';
+  document.body.classList.remove('models-view-active');
   $('#dashboardView').classList.add('hidden');
   $('#boardView').classList.add('hidden');
   $('#editorView').classList.remove('hidden');
@@ -336,6 +338,7 @@ function showEditor() {
 function showBoard() {
   if (dashSelMode) exitDashSelection();
   view = 'board';
+  document.body.classList.remove('models-view-active');
   $('#dashboardView').classList.add('hidden');
   $('#boardView').classList.remove('hidden');
   $('#editorView').classList.add('hidden');
@@ -4283,6 +4286,7 @@ async function init() {
     dlq.items[d.id] = Object.assign(dlq.items[d.id] || {}, d, { status: 'completed' });
     dlqUpdateBadge();
     if (view === 'downloads') dlqRender();
+    if (view === 'downloads') dlqRefresh();
   });
   window.api.onDlError((d) => {
     dlq.items[d.id] = Object.assign(dlq.items[d.id] || {}, d, { status: 'error' });
@@ -4306,6 +4310,19 @@ async function init() {
   });
 
   $('#dlSections').addEventListener('click', async (e) => {
+    const groupOpenBtn = e.target.closest('[data-dl-group-open]');
+    if (groupOpenBtn) {
+      window.api.openPath(groupOpenBtn.dataset.dlGroupOpen);
+      return;
+    }
+    const groupBtn = e.target.closest('[data-dl-group]');
+    if (groupBtn) {
+      const key = groupBtn.dataset.dlGroup;
+      if (dlq.expandedGroups.has(key)) dlq.expandedGroups.delete(key);
+      else dlq.expandedGroups.add(key);
+      dlqRender();
+      return;
+    }
     const btn = e.target.closest('[data-dlq]');
     if (!btn) return;
     const action = btn.dataset.dlq;
@@ -4335,19 +4352,14 @@ async function init() {
       }
     } else if (action === 'remove') {
       const d = dlq.items[id];
-      const name = (d && d.meta && d.meta.file) ? d.meta.file.split('/').pop() : id;
-      const ok = await confirmDialog({
-        title: 'Quitar de la lista',
-        message: '¿Quitar "' + name + '" de la lista? El archivo descargado se conserva.',
-        okLabel: 'Quitar',
-      });
-      if (ok) window.api.dlRemove(id);
+      if (d) await dlqDeleteCompleted(d);
     }
   });
 
-  $('#dlClearDoneBtn').addEventListener('click', () => {
-    window.api.dlClearCompleted().then((n) => {
-      if (n > 0) toast(n + ' descarga(s) limpiada(s)', 'ok');
+  document.querySelectorAll('.dl-filter').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      dlq.filter = btn.dataset.dlFilter || 'all';
+      document.querySelectorAll('.dl-filter').forEach((b) => b.classList.toggle('active', b === btn));
       dlqRender();
     });
   });
@@ -4476,10 +4488,11 @@ function drawSeriesLine(ctx, series, w, h) {
 
 /* ---------------- Downloads view ---------------- */
 
-const dlq = { items: {} };
+const dlq = { items: {}, filter: 'all', expandedGroups: new Set() };
 
 function showDownloads() {
   view = 'downloads';
+  document.body.classList.add('models-view-active');
   $('#dashboardView').classList.add('hidden');
   $('#boardView').classList.add('hidden');
   $('#editorView').classList.add('hidden');
@@ -4487,17 +4500,13 @@ function showDownloads() {
   $('#dashTopbar').classList.add('hidden');
   $('#dashNavBtn').classList.remove('active');
   $('#dlQueueNavBtn').classList.add('active');
-  window.api.dlListAll().then((items) => {
-    dlq.items = {};
-    for (const d of items) dlq.items[d.id] = d;
-    dlqRender();
-  });
   dlqRender();
+  dlqRefresh();
 }
 
 function dlqUpdateBadge() {
   const active = Object.values(dlq.items).filter((d) => d.status === 'active' || d.status === 'paused' || d.status === 'pending');
-  $('#dlQueueNavBtn').textContent = active.length > 0 ? 'Descargas (' + active.length + ')' : 'Descargas';
+  $('#dlQueueNavBtn').textContent = active.length > 0 ? t('nav_downloads') + ' (' + active.length + ')' : t('nav_downloads');
 }
 
 function dlqFmtBytes(b) {
@@ -4515,12 +4524,17 @@ function dlqFmtSpeed(bps) {
 
 function dlqRender() {
   const items = Object.values(dlq.items);
-  const active = items.filter((d) => d.status === 'active' || d.status === 'pending');
-  const paused = items.filter((d) => d.status === 'paused');
-  const errors = items.filter((d) => d.status === 'error');
-  const done = items.filter((d) => d.status === 'completed');
+  const visible = items.filter((d) => {
+    if (dlq.filter === 'downloading') return d.status === 'active' || d.status === 'pending' || d.status === 'paused' || d.status === 'error';
+    if (dlq.filter === 'completed') return d.status === 'completed';
+    return true;
+  });
+  const active = visible.filter((d) => d.status === 'active' || d.status === 'pending');
+  const paused = visible.filter((d) => d.status === 'paused');
+  const errors = visible.filter((d) => d.status === 'error');
+  const done = visible.filter((d) => d.status === 'completed');
 
-  const hasAny = items.length > 0;
+  const hasAny = visible.length > 0;
   $('#dlEmptyState').classList.toggle('hidden', hasAny);
   $('#dlActiveSection').classList.toggle('hidden', active.length === 0);
   $('#dlPausedSection').classList.toggle('hidden', paused.length === 0);
@@ -4532,10 +4546,51 @@ function dlqRender() {
   $('#dlErrorCount').textContent = errors.length;
   $('#dlDoneCount').textContent = done.length;
 
-  $('#dlActiveList').innerHTML = active.map(dlqRenderItem).join('');
-  $('#dlPausedList').innerHTML = paused.map(dlqRenderItem).join('');
-  $('#dlErrorList').innerHTML = errors.map(dlqRenderItem).join('');
-  $('#dlDoneList').innerHTML = done.map(dlqRenderItem).join('');
+  $('#dlActiveList').innerHTML = dlqRenderGroups(active);
+  $('#dlPausedList').innerHTML = dlqRenderGroups(paused);
+  $('#dlErrorList').innerHTML = dlqRenderGroups(errors);
+  $('#dlDoneList').innerHTML = dlqRenderGroups(done);
+}
+
+function dlqGroupKey(d) {
+  if (d.meta && d.meta.folder) return d.meta.folder;
+  if (d.dest) return d.dest.replace(/[/\\][^/\\]+$/, '');
+  return 'Modelo';
+}
+
+function dlqGroupName(folder) {
+  return String(folder || 'Modelo').split(/[/\\]/).filter(Boolean).pop() || folder || 'Modelo';
+}
+
+function dlqRenderGroups(items) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = dlqGroupKey(item);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  return Array.from(groups.entries()).map(([folder, group]) => {
+    const total = group.reduce((sum, d) => sum + (d.totalBytes || d.receivedBytes || 0), 0);
+    const received = group.reduce((sum, d) => sum + (d.receivedBytes || 0), 0);
+    const hasProgress = group.some((d) => d.status === 'active' || d.status === 'pending' || d.status === 'paused');
+    const pct = total ? Math.min(100, (received / total) * 100) : 0;
+    const expanded = dlq.expandedGroups.has(folder);
+    const progressHtml = hasProgress && !expanded
+      ? '<div class="dl-model-group-progress"><div class="dl-model-group-progress-fill" style="width:' + pct + '%"></div></div>'
+      : '';
+    return '<div class="dl-model-group' + (expanded ? ' expanded' : '') + '">' +
+      '<button class="dl-model-group-head" data-dl-group="' + escapeHtml(folder) + '" aria-expanded="' + (expanded ? 'true' : 'false') + '">' +
+        '<span class="dl-model-group-chevron">›</span>' +
+        '<div><div class="dl-model-group-name">' + escapeHtml(dlqGroupName(folder)) + '</div>' +
+        '<div class="dl-model-group-path">' + escapeHtml(folder) + '</div>' + progressHtml + '</div>' +
+        '<span class="dl-model-group-actions">' +
+          '<span class="dl-model-group-count">' + group.length + ' archivo(s) · ' + (hasProgress ? pct.toFixed(0) + '% · ' : '') + dlqFmtBytes(total) + '</span>' +
+          '<span class="dlq-action-btn" data-dl-group-open="' + escapeHtml(folder) + '" title="Abrir carpeta">📂</span>' +
+        '</span>' +
+      '</button>' +
+      '<div class="dl-model-group-files">' + group.map(dlqRenderItem).join('') + '</div>' +
+    '</div>';
+  }).join('');
 }
 
 function dlqRenderItem(d) {
@@ -4559,7 +4614,7 @@ function dlqRenderItem(d) {
     actions += '<button class="dlq-action-btn danger" data-dlq="cancel" title="Eliminar"' + idAttr + '>✕</button>';
   } else if (d.status === 'completed') {
     actions = '<button class="dlq-action-btn" data-dlq="open" title="Abrir carpeta"' + idAttr + '>📂</button>';
-    actions += '<button class="dlq-action-btn danger" data-dlq="remove" title="Quitar de la lista"' + idAttr + '>✕</button>';
+    actions += '<button class="dlq-action-btn danger" data-dlq="remove" title="Eliminar modelo"' + idAttr + '>✕</button>';
   }
 
   const iconMap = { active: '⬇', paused: '⏸', error: '⚠', completed: '✓', pending: '⏳' };
@@ -4568,6 +4623,7 @@ function dlqRenderItem(d) {
   let meta = '';
   if (d.status === 'completed') {
     meta = dlqFmtBytes(d.totalBytes || d.receivedBytes);
+    if (d.local && d.meta && d.meta.folder) meta += ' · ' + d.meta.folder;
   } else if (d.status === 'pending') {
     meta = d.meta && d.meta.count > 1 ? 'Archivo ' + ((d.meta.index || 0) + 1) + ' de ' + d.meta.count : 'En espera';
   } else {
@@ -4592,6 +4648,37 @@ function dlqRenderItem(d) {
       errorHtml +
     '</div>' +
   '</div>';
+}
+
+async function dlqRefresh() {
+  const items = await window.api.dlListAll();
+  dlq.items = {};
+  for (const d of items) dlq.items[d.id] = d;
+  dlqRender();
+  dlqUpdateBadge();
+}
+
+async function dlqDeleteCompleted(d) {
+  const name = (d.meta && d.meta.file) ? d.meta.file : (d.dest || '').split(/[/\\]/).pop() || d.id;
+  const ok = await confirmDialog({
+    title: t('toast_confirm_delete_model'),
+    message: t('toast_confirm_delete_model') + '\n\n' + name,
+    okLabel: t('confirm_delete'),
+    danger: true,
+  });
+  if (!ok) return;
+  const res = d.local ? await window.api.dlDeleteLocal(d.dest) : await window.api.dlRemove(d.id);
+  if (!res || !res.ok) {
+    toast((res && res.error) || t('toast_model_delete_failed'), 'err');
+    return;
+  }
+  delete dlq.items[d.id];
+  await dlqRefresh();
+  modelsCache = await scanAllModels();
+  populateModelSelects();
+  renderDownloadedModels();
+  refresh();
+  toast(t('toast_model_deleted'), 'ok');
 }
 
 /* ---------------- Events ---------------- */

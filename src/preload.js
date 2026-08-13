@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('api', {
   dlRetry: (id) => ipcRenderer.invoke('dl:retry', id),
   dlList: () => ipcRenderer.invoke('dl:list'),
   dlListAll: () => ipcRenderer.invoke('dl:listAll'),
+  dlDeleteLocal: (filePath) => ipcRenderer.invoke('dl:deleteLocal', filePath),
   dlClearCompleted: () => ipcRenderer.invoke('dl:clearCompleted'),
   onDlProgress: (cb) => ipcRenderer.on('dl:progress', (_e, d) => cb(d)),
   onDlComplete: (cb) => ipcRenderer.on('dl:complete', (_e, d) => cb(d)),

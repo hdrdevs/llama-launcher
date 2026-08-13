@@ -758,6 +758,7 @@ body.sidebar-collapsed .profile-item .item-dot {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   padding-bottom: calc(var(--bottom-height) - 42px);
 }
 
@@ -1385,6 +1386,25 @@ body.resizing-bottom .bottom-resize-handle {
 
 body.bottom-collapsed .main {
   padding-bottom: 38px;
+}
+
+body.models-view-active .main {
+  padding-bottom: 0;
+  overflow: visible;
+}
+
+body.models-view-active .downloads-view {
+  position: fixed;
+  top: 36px;
+  left: calc(var(--sidebar-width) + 3px);
+  right: 0;
+  bottom: var(--bottom-height);
+  z-index: 5;
+  background: var(--bg);
+}
+
+body.models-view-active.bottom-collapsed .downloads-view {
+  bottom: 38px;
 }
 
 .stats-bar.collapsed .bottom-panel {
@@ -2408,14 +2428,50 @@ body.bottom-collapsed .main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* Download sections */
+.dl-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.dl-sticky-head .topbar {
+  border-bottom: 0;
+}
+
 .dl-sections {
-  flex: 1;
-  overflow-y: auto;
+  flex: 0 0 auto;
+  overflow: visible;
   padding: 12px 24px 24px;
+}
+
+.dl-filters {
+  display: flex;
+  gap: 8px;
+  padding: 12px 24px 16px;
+}
+
+.dl-filter {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dl-filter.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .dl-section {
@@ -2458,6 +2514,117 @@ body.bottom-collapsed .main {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
+#dlDoneList {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
+.dl-model-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
+.dl-model-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 2px 4px;
+  border-bottom: 0;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dl-model-group-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.dl-model-group-chevron {
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 0.15s ease;
+}
+
+.dl-model-group.expanded .dl-model-group-chevron {
+  transform: rotate(90deg);
+}
+
+.dl-model-group-files {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
+.dl-model-group.expanded .dl-model-group-files {
+  display: flex;
+}
+
+.dl-model-group-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dl-model-group-path,
+.dl-model-group-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.dl-model-group-path {
+  margin-top: 3px;
+  word-break: break-all;
+}
+
+.dl-model-group-progress {
+  height: 5px;
+  margin-top: 8px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.dl-model-group-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.dl-model-group-count {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.dl-model-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .dl-item {
